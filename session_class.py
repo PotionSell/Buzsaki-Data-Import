@@ -11,7 +11,7 @@ import h5py as h5
 import csv
 import itertools
 from collections import OrderedDict
-from decimal import *
+#from decimal import *
 
 os.chdir(target_api)
 from nwb import nwb_file
