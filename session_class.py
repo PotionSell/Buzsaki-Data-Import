@@ -68,24 +68,10 @@ class Session():
             if self.epos[x] == '""':
                 self.epos = numpy.delete(self.epos, x, None)
                 x = x-1
-        print self.epos
-        print self.epos.size
+        #print self.epos
+        #print self.epos.size
         
-#        epos_data = numpy.recfromcsv('hc3-epos.csv', delimiter=',', filling_values=numpy.nan, 
-#                                case_sensitive=True, deletechars='', replace_space=' ')
-#        for epos in epos_data:
-#            if self.topGroup == str(epos[0]):
-#                break
-#        self.epos = epos
-#        print self.epos
-#        print len(self.epos)
-#        self.epos = self.epos.view((self.epos.dtype[0], len(self.epos.dtype.names)))
-#        
-##        for x in range (len(self.epos)-1, -1, -1):
-##            if self.epos[x] == '""':
-##                self.epos = numpy.delete(self.epos, x, None)
-##                x = x-1
-#        print self.epos
+
         
         #### generate preliminary adaptation files (.csv, etc. ) needed by python from session files ####
         
