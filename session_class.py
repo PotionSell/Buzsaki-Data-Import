@@ -18,27 +18,34 @@ from nwb import nwb_file
 from nwb import utils
 os.chdir(cwd)
 
+
+#a background function to sort lists
+import re
+def sort_nicely( l ):
+    """ Sort the given list in the way that humans expect.
+    """
+    convert = lambda text: int(text) if text.isdigit() else text
+    alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ]
+    l.sort( key=alphanum_key )
+
+
+
 class Session():
     
-        #create an instance of the Session class by passing a name of the desired session. This holds the session's data
+    #create an instance of the Session class by passing a name of the desired session. This holds the Buzsaki session's data
     def __init__(self, sessionName):
         
-        #access metadata to get session info
+        #### generate basic session info from metadata files ####
         os.chdir(target_data + '/Metadata/hc3-metadata-tables')
         sessions = numpy.recfromcsv('hc3-session.csv', delimiter=',', filling_values=numpy.nan, 
                                 case_sensitive=True, deletechars='', replace_space=' ') #an array of all session data
         session = None
-
         for session in sessions:
             if sessionName == str(session[2]):
                 break                                   #this saves the desired session as 'session'
         if session[0] == 1555 and sessionName != 'j01_maze05_M.001': 
             session = None
             raise ValueError('invalid session name')    #checks to see if a session was chosen
-        
-        
-                
-        #### generate session metadata from files ####
         
         #metadata: session number
         self.sessionNum = session[0]
@@ -51,7 +58,7 @@ class Session():
         #metadata: session stimulus
         self.sessionStim = session[3]
         
-        #metadata: total time
+        #metadata: total time (s)
         self.sessionTime = session[5]
         
         #directory of the session
@@ -59,19 +66,16 @@ class Session():
         
         #electrode position data - the positions of the session's electrodes in an array
         epos_data = numpy.genfromtxt('hc3-epos.csv', delimiter = ',', dtype = None)
-        print epos_data
+#        print epos_data
         for epos in epos_data:
             if self.topGroup == str(epos[0]):
                 break
         self.epos = epos
-        for x in range (len(self.epos)-1, -1, -1):
+        for x in range (len(self.epos)-1, -1, -1):              #trim empty entries
             if self.epos[x] == '""':
                 self.epos = numpy.delete(self.epos, x, None)
                 x = x-1
-        #print self.epos
-        #print self.epos.size
         
-
         
         #### generate preliminary adaptation files (.csv, etc. ) needed by python from session files ####
         
@@ -93,7 +97,31 @@ class Session():
         self.LED_posData = numpy.genfromtxt(self.sessionName+'.whl.csv', delimiter = ',')
         
         
+        #time data for each electrode
         
+        #self.res_files = numpy.array([])
+        self.res_files = []
+        for i in os.listdir(os.getcwd()):                   #get each .res file
+            if 'res' in i and i.index('res') == len(sessionName)+1:
+                self.res_files.append(i)
+        print self.res_files
+        sort_nicely( self.res_files)
+        print self.res_files
+        
+        self.recording_timestamps = numpy.array([])
+        for i in self.res_files:
+#            print numpy.genfromtxt(i)
+            array = numpy.genfromtxt(i)
+            print array.shape
+            array = numpy.transpose(array.reshape((-1, 1)))             #make the array 2D, then transpose it
+            print array.shape
+            self.recording_timestamps = numpy.append(self.recording_timestamps, numpy.genfromtxt(i))
+        print self.recording_timestamps
+        print self.recording_timestamps.shape
+#        for i in self.recording_timestamps:
+#            for x in range(0, i.shape[0]):
+#                i[x] = i[x] * 100
+#        print self.recording_timestamps
         
         os.chdir(cwd)
         
@@ -103,9 +131,9 @@ class Session():
     #### methods to manipulate the datasets and groups of the session ####
     ######################################################################
 
-    def make_timestamps(self):
+    def make_pos_timestamps(self):
         '''
-        creates a set of timestamps for a given session time (times for sessions are specified in:
+        creates a set of pos_timestamps for a given session time (times for sessions are specified in:
         /home/sidious/Desktop/docs_Bryce_s/CMB2NWBproject/NWB_sample_data/Buzsaki/Metadata/hc3-metadata-tables/hc3-session.csv
         '''
 
@@ -119,42 +147,42 @@ class Session():
         #this increment is constant between sessions ec013.156 and .157; I assume it is constant for all sessions
         
         ##after successful testing, the generated timestamps can lose accuracy around the 8th decimal place (in regular notation)
-        timestamps = numpy.empty([int(self.sessionTime/increment)+10])  #I add 10 to ensure timestamps is longer than data
+        pos_timestamps = numpy.empty([int(self.sessionTime/increment)+10])  #I add 10 to ensure timestamps is longer than data
                                                                     #(so that timestamps gets trimmed in the structuredDict rather than data)
         time = 0
 
-        for i in range(0, timestamps.size):
-            timestamps[i] = increment *i
+        for i in range(0, pos_timestamps.size):
+            pos_timestamps[i] = increment *i
 
         #the total time ends up being a bit longer than the given time; I verified this through testing, so somehow
             #the exact lengths of the sessions given must not be quite so exact (also consider 
                 #the 'blank' data at the start and end of the session which must contribute to this)
                                                 
-#        #trim timestamps so that it doesn't include the first bit (for testing)
-#        timestamps = numpy.delete(timestamps, numpy.s_[0:336])
-        return timestamps
+#        #trim pos_timestamps so that it doesn't include the first bit (for testing)
+#        pos_timestamps = numpy.delete(pos_timestamps, numpy.s_[0:336])
+        return pos_timestamps
         
         
     def make_posDict(self):
         '''
-        Makes a python dictionary of the session timestamps and position data.
+        Makes a python dictionary of the session position timestamps and position data.
         Returns a list of dictionaries, one corresponding to each LED, and one corresponding to calculated real position
         '''
     
-        timestamps = self.make_timestamps()
+        pos_timestamps = self.make_pos_timestamps()
         
         dict_1 = {}                                                         #dict for LED1 positions
         #####*************
-        for i in range (    int(self.LED_posData.shape[0]   *.05)):     #here I assume that there are equal #s of x and y positions
+        for i in range (    int(self.LED_posData.shape[0]   *.2)):     #here I assume that there are equal #s of x and y positions
             if self.LED_posData[i,0] != -1 and self.LED_posData[i,1] != -1:         #trim out the invalid position values (-1)
-                dict_1.update({timestamps[i]: self.LED_posData[i,:2]})          #unsorted dict
+                dict_1.update({pos_timestamps[i]: self.LED_posData[i,:2]})          #unsorted dict
         dict_1 = OrderedDict(sorted(dict_1.items(), key=lambda t: t[0]))    #sorted dict; could I combine these two steps?
         
         dict_2 = {}                                                         #dict for LED2 positions
         #####************************************************************
-        for i in range (    int(self.LED_posData.shape[0]   *.05)):
+        for i in range (    int(self.LED_posData.shape[0]   *.2)):
             if self.LED_posData[i,2] != -1 and self.LED_posData[i,3] != -1:
-                dict_2.update({timestamps[i]: self.LED_posData[i,2:]})          #unsorted dict
+                dict_2.update({pos_timestamps[i]: self.LED_posData[i,2:]})          #unsorted dict
         dict_2 = OrderedDict(sorted(dict_2.items(), key=lambda t: t[0]))    #sorted dict
         
         print '***Calculating intermediate position - this will take some time***'
@@ -163,8 +191,9 @@ class Session():
             reference_dict = dict_1
         else: reference_dict = dict_2
         for i in range (len(reference_dict.keys())):
-            if timestamps[i] in dict_1.keys() and timestamps[i] in dict_2.keys():
-                dict_3.update({timestamps[i]: [round((round(dict_1[timestamps[i]][0], 10) + round(dict_2[timestamps[i]][0], 10))/2, 10), round((round(dict_1[timestamps[i]][1], 10) + round(dict_2[timestamps[i]][1], 10))/2, 10)]})
+            if pos_timestamps[i] not in dict_1.keys(): continue
+            if pos_timestamps[i] not in dict_2.keys(): continue
+            dict_3.update({pos_timestamps[i]: [round((round(dict_1[pos_timestamps[i]][0], 10) + round(dict_2[pos_timestamps[i]][0], 10))/2, 10), round((round(dict_1[pos_timestamps[i]][1], 10) + round(dict_2[pos_timestamps[i]][1], 10))/2, 10)]})
         dict_3 = OrderedDict(sorted(dict_3.items(), key=lambda t: t[0]))
         
         posDict = [dict_1,dict_2,dict_3]
@@ -174,7 +203,7 @@ class Session():
         
     def cleanup(self):
         '''
-        Removes any files generated earlier for python compatibility by the Session object.
+        Removes any files generated by the program for python compatibility.
         '''
         
         os.chdir(self.sessionDir)
@@ -282,8 +311,24 @@ def write_nwb(sessionName):
     os.chdir(cwd)
     
     
-write_nwb('ec013.156')
-write_nwb('ec014.639')
+def test_stuff(sessionName):
+    os.chdir(target_api)
+    
+    print '\n\ntesting\n\n'
+    
+    session = Session(sessionName)
+    
+    
+    session.cleanup()
+    
+    os.chdir(cwd)
+    
+    
+test_stuff('ec013.156')
+#test_stuff('ec014.468')
+
+#write_nwb('ec013.156')
+#write_nwb('ec014.639')
 #write_nwb('ec013.756')
 #write_nwb('750')
 
