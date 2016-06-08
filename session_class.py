@@ -95,7 +95,8 @@ class Session():
         
         #LED position data
         self.LED_posData = numpy.genfromtxt(self.sessionName+'.whl.csv', delimiter = ',')
-        self.LED_posData = numpy.around(.01 * self.LED_posData, 10)
+#        self.LED_posData = numpy.around(.01 * self.LED_posData, 15)
+        self.LED_posData = self.LED_posData * 0.01
         
         #cluster timestamp data from each shank
         self.res_files = []
@@ -165,7 +166,7 @@ class Session():
         /home/sidious/Desktop/docs_Bryce_s/CMB2NWBproject/NWB_sample_data/Buzsaki/Metadata/hc3-metadata-tables/hc3-session.csv
         '''
 
-        increment = 0.0256016385048631099332
+#        increment = 0.0256016385048631099332
         #The interval between recording times, a property of the Buzsaki data itself
         #Since it was not explicitly given, I calculated the average interval between each step using data from the HDF5 version:
         #   [final time value]/[inital time value] * [total # of steps]: (1013.2616487455197-8.602150537634408)/39242
@@ -174,11 +175,14 @@ class Session():
         #(but is this level of precision even significant in context with the session context and measurement certainties?
         #this increment is constant between sessions ec013.156 and .157; I assume it is constant for all sessions
         
+        
+        #trying a different interval I found in the old Buzsaki-to-CMB matlab code
+        increment = 1/39.06
+        
         ##after successful testing, the generated timestamps can lose accuracy around the 8th decimal place (in regular notation)
         pos_timestamps = numpy.empty([int(self.sessionTime/increment)+10])  #I add 10 to ensure timestamps is longer than data
                                                                     #(so that timestamps gets trimmed in the structuredDict rather than data)
-        time = 0
-
+        
         for i in range(0, pos_timestamps.size):
             pos_timestamps[i] = increment *i
 
@@ -201,14 +205,14 @@ class Session():
         
         dict_1 = {}                                                         #dict for LED1 positions
         #####*************
-        for i in range (    int(self.LED_posData.shape[0]   *1)):     #here I assume that there are equal #s of x and y positions
+        for i in range (    int(self.LED_posData.shape[0]   *.1)):     #here I assume that there are equal #s of x and y positions
             if self.LED_posData[i,0] >= 0 and self.LED_posData[i,.1] >= 0:         #trim out the invalid position values (-1)
                 dict_1.update({pos_timestamps[i]: self.LED_posData[i,:2]})          #unsorted dict
         dict_1 = OrderedDict(sorted(dict_1.items(), key=lambda t: t[0]))    #sorted dict; could I combine these two steps?
         
         dict_2 = {}                                                         #dict for LED2 positions
         #####************************************************************
-        for i in range (    int(self.LED_posData.shape[0]   *1)):
+        for i in range (    int(self.LED_posData.shape[0]   *.1)):
             if self.LED_posData[i,2] >= 0 and self.LED_posData[i,3] >= 0:
                 dict_2.update({pos_timestamps[i]: self.LED_posData[i,2:]})          #unsorted dict
         dict_2 = OrderedDict(sorted(dict_2.items(), key=lambda t: t[0]))    #sorted dict
@@ -218,11 +222,23 @@ class Session():
         if len(dict_1.keys()) <= len(dict_2.keys()):        #use the LED data with the fewest valid positions as reference to ensure proper position calculations
             reference_dict = dict_1
         else: reference_dict = dict_2
-        for i in range (len(reference_dict.keys())):
+#        for i in range (len(reference_dict.keys())):
+        for i in range (len(pos_timestamps)):
             if pos_timestamps[i] not in dict_1.keys(): continue
             if pos_timestamps[i] not in dict_2.keys(): continue
             dict_3.update({pos_timestamps[i]: [round((round(dict_1[pos_timestamps[i]][0], 10) + round(dict_2[pos_timestamps[i]][0], 10))/2, 10), round((round(dict_1[pos_timestamps[i]][1], 10) + round(dict_2[pos_timestamps[i]][1], 10))/2, 10)]})
         dict_3 = OrderedDict(sorted(dict_3.items(), key=lambda t: t[0]))
+        
+#        #testing for dict_3 errors
+#        with open('dict_1.csv', 'wb') as f:
+#            w = csv.writer(f)
+#            w.writerows(dict_1.items())
+#            f.close()
+#        with open('dict_2.csv', 'wb') as f:
+#            w = csv.writer(f)
+#            w.writerows(dict_2.items())
+#            f.close()
+#        #
         
         print '***Done calculating position***'
         return (dict_1,dict_2,dict_3)
@@ -270,6 +286,7 @@ def write_nwb(sessionName):
     print 'writing to ' +os.getcwd()
     f = nwb_file.create(sessionName+'.nwb')
     
+#    with nwb_file.create(sessionName+'.nwb')       #with statements don't work
     #### generate default directories ####
     
     timeseries = f.make_group("<TimeSeries>", "timeseries", path="/acquisition/timeseries")
@@ -383,7 +400,7 @@ def test_stuff(sessionName):
 #test_stuff('ec013.156')
 #test_stuff('ec014.468')
 
-write_nwb('ec013.157')
+write_nwb('ec013.156')
 #write_nwb('ec014.639')
 #write_nwb('ec013.756')
 #write_nwb('750')
