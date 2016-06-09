@@ -98,7 +98,7 @@ class Session():
 #        self.LED_posData = numpy.around(.01 * self.LED_posData, 15)
         self.LED_posData = self.LED_posData * 0.01
         
-        #cluster timestamp data from each shank
+        #cluster timestamp data from each shank (as a list, data from each shank)
         self.res_files = []
         for i in os.listdir(os.getcwd()):                   #get each .res file
             if '.res' in i and i.index('.res') == len(sessionName):
@@ -109,8 +109,10 @@ class Session():
             array = numpy.genfromtxt(self.res_files[x])
             array = numpy.around(1./20000. * array, 10)     #converts to seconds
             self.cluster_times_list.append(array)
+            
+        self.num_shanks = len(self.res_files)   #probably should just get this info from the .xml or something to be consistent
         
-        #cluster number data from each shank
+        #cluster number data from each shank (as a list, data from each shank)
         self.clu_files = []
         for i in os.listdir(os.getcwd()):                   #get each .clu file
             if '.clu' in i and i.index('.clu') == len(sessionName):
@@ -122,35 +124,17 @@ class Session():
             array = array[1:].astype(int)                   #trim the first line since it's not data
             self.cluster_num_list.append(array)
             
-#        arrays = tuple(arrays)
-#        self.cluster_times_list = numpy.column_stack(arrays)
-#        print self.cluster_times_list
+        #feature data from each shank (as a list, data from each shank)
+        self.fet_files = []
+        for i in os.listdir(os.getcwd()):                   #get each .fet file
+            if '.fet' in i and i.index('.fet') == len(sessionName):
+                self.fet_files.append(i)
+        sort_nicely(self.fet_files)
+        self.feature_data_list = []
+        for x in range(len(self.fet_files)):
+            features = numpy.genfromtxt(self.fet_files[x], skip_header=1, usecols = ((x) for x in range(24)))
+            self.feature_data_list.append(features)
             
-#            array = numpy.transpose(array.reshape((-1, 1)))             #make the array 2D, then transpose it
-#            print array.shape
-#            self.cluster_times_list[x] = array
-##            self.cluster_times_list = numpy.append(self.cluster_times_list, numpy.genfromtxt(i))
-#        print self.cluster_times_list
-#        print self.cluster_times_list.shape
-        
-#        for i in self.cluster_times_list:
-#            for x in range(0, i.shape[0]):
-#                i[x] = i[x] * 100
-#        print self.cluster_times_list
-#        for i in self.res_files:
-##            print numpy.genfromtxt(i)
-#            array = numpy.genfromtxt(i)
-#            print array.shape
-#            array = numpy.transpose(array.reshape((-1, 1)))             #make the array 2D, then transpose it
-#            print array.shape
-#            self.cluster_times_list = numpy.append(self.cluster_times_list, array)
-#        print self.cluster_times_list
-#        print self.cluster_times_list.shape
-
-##        for i in self.cluster_times_list:
-##            for x in range(0, i.shape[0]):
-##                i[x] = i[x] * 100
-##        print self.cluster_times_list
         
         os.chdir(cwd)
         
@@ -361,7 +345,7 @@ def write_nwb(sessionName):
     for x in range(len(session.cluster_times_list)):
         name = ('shank_', str(x))
         shank = f.make_group('<module>', ''.join(name))
-        clustering = shank.make_group('Clustering', attrs= {'description': 'Clustered spike data, whether from automatic \
+        clustering = shank.make_group('Clustering', attrs= {'help': 'Clustered spike data, whether from automatic \
 clustering tools (eg, klustakwik) or as a result of manual sorting', 'source': 'FeatureExtraction interface, this module'})
         clustering.set_dataset('times', session.cluster_times_list[x])
         clustering.set_dataset('num', session.cluster_num_list[x])
@@ -375,7 +359,15 @@ clustering tools (eg, klustakwik) or as a result of manual sorting', 'source': '
             cluster_set.set_dataset('times', times[i])
             cluster_set.set_dataset('source', 'From klustakwik, curated with Klusters')
             cluster_set.set_dataset('unit_description', 'unit '+str(i))
-    
+        
+        FeatureExtraction = shank.make_group('FeatureExtraction', attrs= {'help': 'Container for salient features of detected events',
+                        'source': 'EventWaveform interface, this module'})
+        FeatureExtraction.set_dataset('features', session.feature_data_list[x])
+#        FeatureExtraction.set_dataset('electrode_idx', numpy.array(for x in 
+        FeatureExtraction.set_dataset('times', session.cluster_times_list[x])
+        FeatureExtraction.set_dataset('description', ['PC1','PC2','PC3'])
+        ######temporary, need to set this to whatever the features are per session instead of hard coding it
+        
     f.close()
     
     print 'Finished writing .nwb file'
