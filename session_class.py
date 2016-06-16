@@ -124,7 +124,7 @@ class Session():
             array = numpy.genfromtxt(self.clu_files[x])
             array = array[1:].astype(int)                   #trim the first line since it's not data
             self.cluster_num_list.append(array)
-            
+        
         #feature data from each shank (as a list, data from each shank)
         self.fet_files = []
         for i in os.listdir(os.getcwd()):                   #get each .fet file
@@ -151,20 +151,9 @@ class Session():
         /home/sidious/Desktop/docs_Bryce_s/CMB2NWBproject/NWB_sample_data/Buzsaki/Metadata/hc3-metadata-tables/hc3-session.csv
         '''
 
-#        increment = 0.0256016385048631099332
-        #The interval between recording times, a property of the Buzsaki data itself
-        #Since it was not explicitly given, I calculated the average interval between each step using data from the HDF5 version:
-        #   [final time value]/[inital time value] * [total # of steps]: (1013.2616487455197-8.602150537634408)/39242
-        #It varies in accuracy (the lowest that I've seen has been to the 7th digit, but it can range to consistent 13th digit accuracy)
-        #(I truncate the calculated timestamps to the 13th digit inclusively as that is the range of the actual timestamps)
-        #(but is this level of precision even significant in context with the session context and measurement certainties?
-        #this increment is constant between sessions ec013.156 and .157; I assume it is constant for all sessions
-        
-        
-        #trying a different interval I found in the old Buzsaki-to-CMB matlab code
+        #an interval found in old Buzsaki-to-CMB matlab code; supposedly in https://crcns.org/files/data/hc3/crcns-hc3-data-description.pdf
         increment = 1/39.06
         
-        ##after successful testing, the generated timestamps can lose accuracy around the 8th decimal place (in regular notation)
         pos_timestamps = numpy.empty([int(self.sessionTime/increment)+10])  #I add 10 to ensure timestamps is longer than data
                                                                     #(so that timestamps gets trimmed in the structuredDict rather than data)
         
@@ -174,9 +163,6 @@ class Session():
         #the total time ends up being a bit longer than the given time; I verified this through testing, so somehow
             #the exact lengths of the sessions given must not be quite so exact (also consider 
                 #the 'blank' data at the start and end of the session which must contribute to this)
-                                                
-#        #trim pos_timestamps so that it doesn't include the first bit (for testing)
-#        pos_timestamps = numpy.delete(pos_timestamps, numpy.s_[0:336])
         return pos_timestamps
         
         
@@ -190,19 +176,19 @@ class Session():
         
         dict_1 = {}                                                         #dict for LED1 positions
         #####*************
-        for i in range (    int(self.LED_posData.shape[0]   *.1)):     #here I assume that there are equal #s of x and y positions
-            if self.LED_posData[i,0] >= 0 and self.LED_posData[i,.1] >= 0:         #trim out the invalid position values (-1)
+        for i in range (    int(self.LED_posData.shape[0]   *1)):     #here I assume that there are equal #s of x and y positions
+            if self.LED_posData[i,0] >= 0 and self.LED_posData[i,1] >= 0:         #trim out the invalid position values (-1)
                 dict_1.update({pos_timestamps[i]: self.LED_posData[i,:2]})          #unsorted dict
         dict_1 = OrderedDict(sorted(dict_1.items(), key=lambda t: t[0]))    #sorted dict; could I combine these two steps?
         
         dict_2 = {}                                                         #dict for LED2 positions
         #####************************************************************
-        for i in range (    int(self.LED_posData.shape[0]   *.1)):
+        for i in range (    int(self.LED_posData.shape[0]   *1)):
             if self.LED_posData[i,2] >= 0 and self.LED_posData[i,3] >= 0:
                 dict_2.update({pos_timestamps[i]: self.LED_posData[i,2:]})          #unsorted dict
         dict_2 = OrderedDict(sorted(dict_2.items(), key=lambda t: t[0]))    #sorted dict
         
-        print '***Calculating intermediate rat position - this will take some time***'
+        print '***Calculating intermediate rat position - this may take some time***'
         dict_3 = {}
         if len(dict_1.keys()) <= len(dict_2.keys()):        #use the LED data with the fewest valid positions as reference to ensure proper position calculations
             reference_dict = dict_1
@@ -254,11 +240,14 @@ class Session():
         root = tree.getroot()
         
         #find the active recording shanks and their channels
-        self.active_groups_channels = {}; group = []; count = 0
+        ###keep in mind that this includes the last "shank" that has one channel - this is presumably a timestamp or something
+        ###this isn't functionally a problem since I don't write any data from that "shank" in  write_nwb()
+        self.active_groups_channels = {}; group = []; count = 0; shanks = []
         for i in root.find('anatomicalDescription').find('channelGroups'):
             for j in i:
                 group.append(int(j.text))
             self.active_groups_channels.update({count: group})
+            shanks.append(count)
             count = count+1
             group = []
         #find only the active channels
@@ -287,7 +276,7 @@ class Session():
 ##                print data.shape
 ##            data = self.LoadChunk(nChannels, channels, nSamples, precision)
 #            f.close()
-            
+        print '***Loading LFP data - this may take some time***'
         with open(self.sessionName+ '.eeg', 'rb') as f:
             all_LFP_data = numpy.fromfile(f, numpy.int16).reshape((-1, nChannels))
             print all_LFP_data.shape
@@ -301,6 +290,10 @@ class Session():
         self.LFP_data = numpy.around(3333333333./10921799911533422. * self.LFP_data, 11)
                                     #this value is a conversion factor from raw LFP to volts
                                     #obtained from comparison of sample LFP data and values in volts
+        print '***Done loading LFP data***'
+        
+        return self.access_LFPdata(shanks)
+#        return self.LFP_data
 
 #    def LoadChunk(self, nChannels, channels, nSamples, precision):
 #        '''
@@ -316,15 +309,27 @@ class Session():
         
     def access_LFPdata(self, shank):
         '''
-        Accesses the LFP data for a shank specified by the "shank" integer parameter
+        Accesses the LFP data for a shank(s) specified by the "shank" integer/list parameter.
+        Called by load_LFPdata() but can also be called by user to access specific sets.
         '''
         
-        curr_channels = self.active_groups_channels[shank]
-        LFP_data_slice = numpy.empty([self.LFP_data.shape[0], len(curr_channels)])
-        for x in range(len(curr_channels)):
-            LFP_data_slice[:, x] = self.LFP_data[:, curr_channels[x]]
-        return LFP_data_slice
-                
+        if type(shank) is int:
+            curr_channels = self.active_groups_channels[shank]
+            LFP_data_slice = numpy.empty([self.LFP_data.shape[0], len(curr_channels)])
+            for x in range(len(curr_channels)):
+                LFP_data_slice[:, x] = self.LFP_data[:, curr_channels[x]]
+            return LFP_data_slice
+        
+        elif type(shank) is list:
+            curr_channels = [self.active_groups_channels[x] for x in shank]
+            LFP_data_slice_list = []
+            for y in range(len(shank)):
+                LFP_data_slice = numpy.empty([self.LFP_data.shape[0], len(curr_channels[y])])
+                for z in range(len(curr_channels[y])):
+                    LFP_data_slice[:, z] = self.LFP_data[:, curr_channels[y][z]]
+                LFP_data_slice_list.append(LFP_data_slice)
+            return LFP_data_slice_list
+            
         #to save LFP data as a file: do "numpy.savetxt('name', self.access_LFPdata(X), fmt='%.10f', delimiter=',')
                                                                     #'X' is the shank you want data from
         
@@ -356,7 +361,6 @@ def write_nwb(sessionName):
     print 'writing to ' +os.getcwd()
     f = nwb_file.create(sessionName+'.nwb')
     
-#    with nwb_file.create(sessionName+'.nwb')       #with statements don't work
     #### generate default directories ####
     
     timeseries = f.make_group("<TimeSeries>", "timeseries", path="/acquisition/timeseries")
@@ -368,15 +372,17 @@ def write_nwb(sessionName):
     #### generate a Session object for the desired session ####
     session = Session(sessionName)
     
-    ########## generate position info ##########
+    #### generate preliminary info/data ####
     
     #get raw position data
     posDict = session.make_posDict()
+    #get raw LFP data
+    LFP_data_list = session.load_LFPdata()
     
-    #create .nwb groups
+    #### create .nwb groups ####
     head_position = f.make_group('<module>', 'head_position')
     Position = head_position.make_group('Position', attrs= {'source': 'Data as reported in experiment files', 
-                    'neurodata_type': 'Interface', 'help': 'Position data, whether along the x, xy or xyz axis.'})
+                    'help': 'Position data, whether along the x, xy or xyz axis.'})
 
     
     #### write LED1 position data ####
@@ -407,13 +413,13 @@ def write_nwb(sessionName):
     
     LED2.set_dataset('data', pos_data_2, attrs= {'unit': 'Meters', 'conversion': '1', 'resolution': '0.001'})
             #I changed the conversion/resolution due to using CM instead of M; make sure they are correct
-    LED2.set_dataset('timestamps', pos_timestamps_2, attrs= {'unit': 'Seconds', 'interval': '1'})
+    LED2.set_dataset('timestamps', pos_timestamps_2, attrs = {'unit': 'Seconds', 'interval': '1'})
     LED2.set_dataset('num_samples', pos_num_samples_2)
     LED2.set_dataset('reference_frame', 'Top of room, as seen from camera')
     
     #### write intermediate position data ####
     
-    position = Position.make_group('<SpatialSeries>', 'position', attrs= {'description': 'Position intermediate to LED1 and LED2',
+    position = Position.make_group('<SpatialSeries>', 'position', attrs = {'description': 'Position intermediate to LED1 and LED2',
                     'source': '', 'comments': '', 'ancestry': 'TimeSeries,SpatialSeries', 'neurodata_type': 'TimeSeries', 'help': 
                      'Stores points in space over time. The data[] array structure is [num samples][num spatial dimenstions'})
     
@@ -421,24 +427,30 @@ def write_nwb(sessionName):
     pos_timestamps_real = posDict[2].keys()
     pos_num_samples_real = len(pos_timestamps_real)
     
-    position.set_dataset('data', pos_data_real, attrs= {'unit': 'Meters', 'conversion': '1', 'resolution': '0.001'})
+    position.set_dataset('data', pos_data_real, attrs = {'unit': 'Meters', 'conversion': '1', 'resolution': '0.001'})
             #the exemplar files have the real position values around 10^1 or 10^2 degrees of magnitude, in meters -> I think this is an error on their part
-    position.set_dataset('timestamps', pos_timestamps_real, attrs= {'unit': 'Seconds', 'interval': '1'})
+    position.set_dataset('timestamps', pos_timestamps_real, attrs = {'unit': 'Seconds', 'interval': '1'})
     position.set_dataset('num_samples', pos_num_samples_real)
     position.set_dataset('reference_frame', 'Top of room, as seen from camera')
 
     #### create nwb groups/datasets for each electrode (eg. shank_0, shank_1, etc.) ####
     for x in range(len(session.cluster_times_list)):
+#    for x in range(2):
         name = ('shank_', str(x))
         shank = f.make_group('<module>', ''.join(name))
-        clustering = shank.make_group('Clustering', attrs= {'help': 'Clustered spike data, whether from automatic \
+        
+        #Clustering directory
+        Clustering = shank.make_group('Clustering', attrs = {'help': 'Clustered spike data, whether from automatic \
 clustering tools (eg, klustakwik) or as a result of manual sorting', 'source': 'FeatureExtraction interface, this module'})
-        clustering.set_dataset('times', session.cluster_times_list[x])
-        clustering.set_dataset('num', session.cluster_num_list[x])
-        clustering.set_dataset('description', 'Cluster #0 is electrical noise, #1 is multi-unit/unsorted, and higher numbers are unit clusters')
+        Clustering.set_dataset('times', session.cluster_times_list[x])
+        Clustering.set_dataset('num', session.cluster_num_list[x])
+        Clustering.set_dataset('description', 'Cluster #0 is electrical noise, #1 is multi-unit/unsorted, and higher numbers are unit clusters')
+        ####placeholders####
+        Clustering.set_dataset('peak_over_rms', [0.0,0.0,0.0])
+        ####
         
         cluster_nums, times = session.get_unit_times(x)
-        clustering.set_dataset('cluster_nums', cluster_nums)
+        Clustering.set_dataset('cluster_nums', cluster_nums)
         UnitTimes = shank.make_group('UnitTimes', attrs= {'description': 'Estimated spike times from a single unit'})
         for i in times.keys():
             cluster_set = UnitTimes.make_group('<unit_N>', str(i))
@@ -446,13 +458,23 @@ clustering tools (eg, klustakwik) or as a result of manual sorting', 'source': '
             cluster_set.set_dataset('source', 'From klustakwik, curated with Klusters')
             cluster_set.set_dataset('unit_description', 'unit '+str(i))
         
-        FeatureExtraction = shank.make_group('FeatureExtraction', attrs= {'help': 'Container for salient features of detected events',
+        print '***Recording features - this may take some time***'
+        #FeatureExtraction directory
+        FeatureExtraction = shank.make_group('FeatureExtraction', attrs = {'help': 'Container for salient features of detected events',
                         'source': 'EventWaveform interface, this module'})
         FeatureExtraction.set_dataset('features', session.feature_data_list[x])
 #        FeatureExtraction.set_dataset('electrode_idx', numpy.array(for x in 
         FeatureExtraction.set_dataset('times', session.cluster_times_list[x])
         FeatureExtraction.set_dataset('description', ['PC1','PC2','PC3'])
         ######temporary, need to set this to whatever the features are per session instead of hard coding it
+        print '***Done recording features***'
+        
+        #LFP directory
+        LFP = shank.make_group('LFP', attrs = {'help': 'LFP data from one or more channels. Filter properties should be noted in the ElectricalSeries',})
+        LFP_timeseries = LFP.make_group('<ElectricalSeries>', 'LFP timeseries', attrs = {'help': 'Stores acquired voltage data from extracellular recordings',
+                        'source': 'Data as reported in experiment files'})
+        LFP_timeseries.set_dataset('data', LFP_data_list[x], attrs = {'conversion': '1.0', 'resolution': '3.052E-7', 'units': 'Volts'})
+        LFP_timeseries.set_dataset('num_samples', len(LFP_data_list[x]))
         
         
         
@@ -481,7 +503,7 @@ def test_stuff(sessionName):
 #test_stuff('ec013.156')
 #test_stuff('ec014.468')
 
-#write_nwb('ec013.156')
+write_nwb('ec013.156')
 #write_nwb('ec014.639')
 #write_nwb('ec013.756')
 #write_nwb('750')
