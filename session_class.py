@@ -11,6 +11,7 @@ import h5py as h5
 import csv
 import itertools
 from collections import OrderedDict
+import xml.etree.ElementTree as ET
 #from decimal import *
 
 os.chdir(target_api)
@@ -19,9 +20,9 @@ from nwb import utils
 os.chdir(cwd)
 
 
-#a background function to sort lists
+#a background function to sort lists in a human-friendly way
 import re
-def sort_nicely( l ):
+def sort_nicely( l ):   
     """ Sort the given list in the way that humans expect.
     """
     convert = lambda text: int(text) if text.isdigit() else text
@@ -234,7 +235,7 @@ class Session():
 #        for x in range(len(self.cluster_num_list)):
         a = self.cluster_num_list[x]
         u = numpy.unique(a)                                         #list of different cluster numbers for current shank
-        indices = [numpy.argwhere(i==a) for i in numpy.unique(a)]         #list of indices of each cluster firing in the .clu data
+        indices = [numpy.argwhere(i==a) for i in numpy.unique(a)]   #list of indices of each cluster firing in the .clu data
         for y in range(len(u)):                                     #for each cluster in current shank
             shank_cluster_indices = indices[y]
             shank_times = self.cluster_times_list[x]
@@ -242,7 +243,92 @@ class Session():
             times.update({u[y]: numpy.squeeze(t, axis=(1,))})       #numpy.squeeze changes from 2D to 1D
         return (u, times)
         
+    def load_LFPdata(self):
+        '''
+        Loads LFP data for all channels into numpy format.
+        '''    
         
+        os.chdir(self.sessionDir)
+        
+        tree = ET.parse(self.sessionName+ '.xml')
+        root = tree.getroot()
+        
+        #find the active recording shanks and their channels
+        self.active_groups_channels = {}; group = []; count = 0
+        for i in root.find('anatomicalDescription').find('channelGroups'):
+            for j in i:
+                group.append(int(j.text))
+            self.active_groups_channels.update({count: group})
+            count = count+1
+            group = []
+        #find only the active channels
+        active_channels = list(itertools.chain(*self.active_groups_channels.values()))
+        
+        nChannels = int(root.find('acquisitionSystem').find('nChannels').text)
+        
+        #I do not currently need the following variables:
+#        channels = numpy.array([active_channels])        #we're going to be reading/writing all active channels
+#        lfp_rate = int(root.find('fieldPotentials').find('lfpSamplingRate').text)
+#        precision = 'int16'
+#        sampleSize = 2              #hardcoded since this is the default precision for the LFP data
+        
+#        with open(self.sessionName+ '.eeg', 'rb') as f:
+#            f.seek(0,2)
+#            last_pos = f.tell()
+#            
+#            #in case all channels do not have the same number of samples
+#            maxNSamplesPerChannel = last_pos/nChannels/sampleSize
+#            nSamplesPerChannel = maxNSamplesPerChannel
+#            
+#            maxSamplesPerChunk = 10000
+#            nSamples = nSamplesPerChannel*nChannels
+##            if nSamples <= maxSamplesPerChunk:
+##                data = self.LoadChunk(nChannels, channels, nSamples, precision)
+##                print data.shape
+##            data = self.LoadChunk(nChannels, channels, nSamples, precision)
+#            f.close()
+            
+        with open(self.sessionName+ '.eeg', 'rb') as f:
+            all_LFP_data = numpy.fromfile(f, numpy.int16).reshape((-1, nChannels))
+            print all_LFP_data.shape
+            f.close()
+            
+        #get LFP data from only the active channels
+        self.LFP_data = numpy.empty([all_LFP_data.shape[0], int(active_channels[-1])+1])
+        for i in active_channels:
+            self.LFP_data[:, i] = all_LFP_data[:, i]
+        print self.LFP_data.shape
+        self.LFP_data = numpy.around(3333333333./10921799911533422. * self.LFP_data, 11)
+                                    #this value is a conversion factor from raw LFP to volts
+                                    #obtained from comparison of sample LFP data and values in volts
+
+#    def LoadChunk(self, nChannels, channels, nSamples, precision):
+#        '''
+#        Function made to parse LFP data from the session's .eeg file
+#        '''
+#        
+#        with open(self.sessionName+ '.eeg', 'rb') as f:
+#            data = numpy.fromfile(f, numpy.int16).reshape((-1, nChannels)).transpose()
+#            print data.shape, ' test'
+#        
+#        return data
+        
+        
+    def access_LFPdata(self, shank):
+        '''
+        Accesses the LFP data for a shank specified by the "shank" integer parameter
+        '''
+        
+        curr_channels = self.active_groups_channels[shank]
+        LFP_data_slice = numpy.empty([self.LFP_data.shape[0], len(curr_channels)])
+        for x in range(len(curr_channels)):
+            LFP_data_slice[:, x] = self.LFP_data[:, curr_channels[x]]
+        return LFP_data_slice
+                
+        #to save LFP data as a file: do "numpy.savetxt('name', self.access_LFPdata(X), fmt='%.10f', delimiter=',')
+                                                                    #'X' is the shank you want data from
+        
+
         
     def cleanup(self):
         '''
@@ -368,6 +454,8 @@ clustering tools (eg, klustakwik) or as a result of manual sorting', 'source': '
         FeatureExtraction.set_dataset('description', ['PC1','PC2','PC3'])
         ######temporary, need to set this to whatever the features are per session instead of hard coding it
         
+        
+        
     f.close()
     
     print 'Finished writing .nwb file'
@@ -382,7 +470,8 @@ def test_stuff(sessionName):
     print '\n\ntesting\n\n'
     
     session = Session(sessionName)
-    
+    os.chdir(session.sessionDir)
+    session.load_LFPdata()
     
     session.cleanup()
     
@@ -392,7 +481,7 @@ def test_stuff(sessionName):
 #test_stuff('ec013.156')
 #test_stuff('ec014.468')
 
-write_nwb('ec013.156')
+#write_nwb('ec013.156')
 #write_nwb('ec014.639')
 #write_nwb('ec013.756')
 #write_nwb('750')
