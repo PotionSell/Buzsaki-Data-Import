@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 os.chdir(target_api)
 from nwb import nwb_file
 from nwb import utils
+from nwb import nwb_core
 os.chdir(cwd)
 
 
@@ -65,9 +66,8 @@ class Session():
         #directory of the session
         self.sessionDir = target_data+'/'+self.topGroup+'/'+self.topGroup+'/'+self.sessionName
         
-        #electrode position data - the positions of the session's electrodes in an array
+        #electrode position information - the positions of the session's electrodes in an array
         epos_data = numpy.genfromtxt('hc3-epos.csv', delimiter = ',', dtype = None)
-#        print epos_data
         for epos in epos_data:
             if self.topGroup == str(epos[0]):
                 break
@@ -76,28 +76,45 @@ class Session():
             if self.epos[x] == '""':
                 self.epos = numpy.delete(self.epos, x, None)
                 x = x-1
+        self.epos = numpy.delete(self.epos, [0,1], None)
+        self.num_shanks = len(self.epos)
+        
+        #groupings of recording sites (eg. per shank)
+        self.rec_site_group = []
+        for x in range(self.num_shanks):
+            for y in range(8):                  #always a total of 8 recording sites per shank
+                self.rec_site_group.append('p'+str(x))
+                
+        #relative depth map of recording sites
+        num_sites = len(self.rec_site_group)
+        self.rec_site_map = numpy.zeros((num_sites, 3))
+        for x in range(num_sites):
+            self.rec_site_map[x,0] = 0.00002*(x%8)
+        self.rec_site_map = numpy.around(self.rec_site_map, 5)
         
         
         #### generate preliminary adaptation files (.csv, etc. ) needed by python from session files ####
         
         os.chdir(self.sessionDir)
         
-        #change SESSIONNAME.whl position data to numpy-friendly .csv format
-        f = open(self.sessionName+'.whl', 'rb')
-        reader = csv.reader(f, delimiter = '\t')
-        g = open(self.sessionName+'.whl.csv', 'wb')
-        writer = csv.writer(g)
-        writer.writerows(reader)
-        f.close()
-        g.close()
-        
+#        #change SESSIONNAME.whl position data to numpy-friendly .csv format
+#        f = open(self.sessionName+'.whl', 'rb')
+#        reader = csv.reader(f, delimiter = '\t')
+#        g = open(self.sessionName+'.whl.csv', 'wb')
+#        writer = csv.writer(g)
+#        writer.writerows(reader)
+#        f.close()
+#        g.close()        
         
         #### generate raw session data from session files ####
         
         #LED position data
-        self.LED_posData = numpy.genfromtxt(self.sessionName+'.whl.csv', delimiter = ',')
-#        self.LED_posData = numpy.around(.01 * self.LED_posData, 15)
-        self.LED_posData = self.LED_posData * 0.01
+        self.LED_posData = numpy.genfromtxt(self.sessionName+ '.whl', delimiter='\t')
+        self.LED_posData = self.LED_posData * 0.01        #convert to meters
+        
+#        #LED position data
+#        self.LED_posData = numpy.genfromtxt(self.sessionName+'.whl.csv', delimiter = ',')
+#        self.LED_posData = self.LED_posData * 0.01
         
         #cluster timestamp data from each shank (as a list, data from each shank)
         self.res_files = []
@@ -110,8 +127,6 @@ class Session():
             array = numpy.genfromtxt(self.res_files[x])
             array = numpy.around(1./20000. * array, 10)     #converts to seconds
             self.cluster_times_list.append(array)
-            
-        self.num_shanks = len(self.res_files)   #probably should just get this info from the .xml or something to be consistent
         
         #cluster number data from each shank (as a list, data from each shank)
         self.clu_files = []
@@ -138,7 +153,6 @@ class Session():
             
         
         os.chdir(cwd)
-        
         
         
     ######################################################################
@@ -188,7 +202,7 @@ class Session():
                 dict_2.update({pos_timestamps[i]: self.LED_posData[i,2:]})          #unsorted dict
         dict_2 = OrderedDict(sorted(dict_2.items(), key=lambda t: t[0]))    #sorted dict
         
-        print '***Calculating intermediate rat position - this may take some time***'
+        print '***Calculating intermediate rat position - this may take some time.***'
         dict_3 = {}
         if len(dict_1.keys()) <= len(dict_2.keys()):        #use the LED data with the fewest valid positions as reference to ensure proper position calculations
             reference_dict = dict_1
@@ -211,7 +225,7 @@ class Session():
 #            f.close()
 #        #
         
-        print '***Done calculating position***'
+        print '***Done calculating position.***\n'
         return (dict_1,dict_2,dict_3)
         
         
@@ -239,6 +253,13 @@ class Session():
         tree = ET.parse(self.sessionName+ '.xml')
         root = tree.getroot()
         
+        self.LFP_meta_dict = {}
+        for i in root.find('acquisitionSystem'):
+            self.LFP_meta_dict.update({i.tag: i.text})
+        i = root.find('fieldPotentials')
+        self.LFP_meta_dict.update({i.tag: i.text})
+        
+        
         #find the active recording shanks and their channels
         ###keep in mind that this includes the last "shank" that has one channel - this is presumably a timestamp or something
         ###this isn't functionally a problem since I don't write any data from that "shank" in  write_nwb()
@@ -251,7 +272,7 @@ class Session():
             count = count+1
             group = []
         #find only the active channels
-        active_channels = list(itertools.chain(*self.active_groups_channels.values()))
+        active_channels = list(itertools.chain(*self.active_groups_channels.values()))      #flattens the active_groups_channels dict into list
         
         nChannels = int(root.find('acquisitionSystem').find('nChannels').text)
         
@@ -276,36 +297,23 @@ class Session():
 ##                print data.shape
 ##            data = self.LoadChunk(nChannels, channels, nSamples, precision)
 #            f.close()
-        print '***Loading LFP data - this may take some time***'
+
+        print '***Loading LFP data - this may take some time.***'
         with open(self.sessionName+ '.eeg', 'rb') as f:
             all_LFP_data = numpy.fromfile(f, numpy.int16).reshape((-1, nChannels))
-            print all_LFP_data.shape
             f.close()
             
         #get LFP data from only the active channels
         self.LFP_data = numpy.empty([all_LFP_data.shape[0], int(active_channels[-1])+1])
         for i in active_channels:
             self.LFP_data[:, i] = all_LFP_data[:, i]
-        print self.LFP_data.shape
         self.LFP_data = numpy.around(3333333333./10921799911533422. * self.LFP_data, 11)
                                     #this value is a conversion factor from raw LFP to volts
                                     #obtained from comparison of sample LFP data and values in volts
-        print '***Done loading LFP data***'
         
-        return self.access_LFPdata(shanks)
-#        return self.LFP_data
-
-#    def LoadChunk(self, nChannels, channels, nSamples, precision):
-#        '''
-#        Function made to parse LFP data from the session's .eeg file
-#        '''
-#        
-#        with open(self.sessionName+ '.eeg', 'rb') as f:
-#            data = numpy.fromfile(f, numpy.int16).reshape((-1, nChannels)).transpose()
-#            print data.shape, ' test'
-#        
-#        return data
-        
+        data = self.access_LFPdata(shanks)
+        print '***Done loading LFP data.***\n'
+        return data
         
     def access_LFPdata(self, shank):
         '''
@@ -333,7 +341,12 @@ class Session():
         #to save LFP data as a file: do "numpy.savetxt('name', self.access_LFPdata(X), fmt='%.10f', delimiter=',')
                                                                     #'X' is the shank you want data from
         
-
+    def access_LFPmetadata(self):
+        '''
+        Accesses the misc. metadata fields regarding the session's LFP data.
+        '''
+        
+               
         
     def cleanup(self):
         '''
@@ -344,7 +357,6 @@ class Session():
         
         os.chdir(self.sessionDir)
         
-        os.remove(self.sessionName+'.whl.csv')
         
         print 'Done cleaning files'
         
@@ -370,7 +382,9 @@ def write_nwb(sessionName):
 #    timeseries = f.make_group('timeseries')
     
     #### generate a Session object for the desired session ####
+    print '***Creating a Session object for the given session name - this may take some time.***'
     session = Session(sessionName)
+    print '***Done creating a Session object.***\n'
     
     #### generate preliminary info/data ####
     
@@ -379,11 +393,20 @@ def write_nwb(sessionName):
     #get raw LFP data
     LFP_data_list = session.load_LFPdata()
     
-    #### create .nwb groups ####
+    #### create groups ####
     head_position = f.make_group('<module>', 'head_position')
     Position = head_position.make_group('Position', attrs= {'source': 'Data as reported in experiment files', 
                     'help': 'Position data, whether along the x, xy or xyz axis.'})
-
+    
+    #### create general groups ####
+    extracellular_ephys = f.make_group('extracellular_ephys')
+    extracellular_ephys.set_dataset('electrode_group', session.rec_site_group)
+    extracellular_ephys.set_dataset('electrode_map', session.rec_site_map, attrs= {'units': 'meters',
+            'Description': 'Depths of each recording site along each shank relative to the location of the top-most site (eg. where value = 0.0)'})
+    for z in range(session.num_shanks):
+        pos = extracellular_ephys.make_group('<electrode_group_X>', 'p'+str(z))
+        pos.set_dataset('location', session.epos[z])
+    
     
     #### write LED1 position data ####
     LED1 = Position.make_group('<SpatialSeries>', 'LED 1', attrs= {'description': 
@@ -434,7 +457,7 @@ def write_nwb(sessionName):
     position.set_dataset('reference_frame', 'Top of room, as seen from camera')
 
     #### create nwb groups/datasets for each electrode (eg. shank_0, shank_1, etc.) ####
-    for x in range(len(session.cluster_times_list)):
+    for x in range(session.num_shanks):
 #    for x in range(2):
         name = ('shank_', str(x))
         shank = f.make_group('<module>', ''.join(name))
@@ -451,23 +474,26 @@ clustering tools (eg, klustakwik) or as a result of manual sorting', 'source': '
         
         cluster_nums, times = session.get_unit_times(x)
         Clustering.set_dataset('cluster_nums', cluster_nums)
-        UnitTimes = shank.make_group('UnitTimes', attrs= {'description': 'Estimated spike times from a single unit'})
+        #UnitTimes directory in Clustering
+        UnitTimes = shank.make_group('UnitTimes', attrs= {'description': 'Estimated spike times from a single unit',
+                                        'source': 'Clustering interface, this module.'})
+        UnitTimes.set_dataset('unit_list', [str(j) for j in cluster_nums])
         for i in times.keys():
             cluster_set = UnitTimes.make_group('<unit_N>', str(i))
             cluster_set.set_dataset('times', times[i])
             cluster_set.set_dataset('source', 'From klustakwik, curated with Klusters')
-            cluster_set.set_dataset('unit_description', 'unit '+str(i))
+            cluster_set.set_dataset('unit_description', 'unit '+str(i))      
         
-        print '***Recording features - this may take some time***'
         #FeatureExtraction directory
+        electrode_idx = numpy.array(session.active_groups_channels[x]).reshape(-1,1)
+        electrode_idx = numpy.squeeze(electrode_idx)
         FeatureExtraction = shank.make_group('FeatureExtraction', attrs = {'help': 'Container for salient features of detected events',
                         'source': 'EventWaveform interface, this module'})
         FeatureExtraction.set_dataset('features', session.feature_data_list[x])
-#        FeatureExtraction.set_dataset('electrode_idx', numpy.array(for x in 
+        FeatureExtraction.set_dataset('electrode_idx', electrode_idx)
         FeatureExtraction.set_dataset('times', session.cluster_times_list[x])
         FeatureExtraction.set_dataset('description', ['PC1','PC2','PC3'])
         ######temporary, need to set this to whatever the features are per session instead of hard coding it
-        print '***Done recording features***'
         
         #LFP directory
         LFP = shank.make_group('LFP', attrs = {'help': 'LFP data from one or more channels. Filter properties should be noted in the ElectricalSeries',})
@@ -475,8 +501,48 @@ clustering tools (eg, klustakwik) or as a result of manual sorting', 'source': '
                         'source': 'Data as reported in experiment files'})
         LFP_timeseries.set_dataset('data', LFP_data_list[x], attrs = {'conversion': '1.0', 'resolution': '3.052E-7', 'units': 'Volts'})
         LFP_timeseries.set_dataset('num_samples', len(LFP_data_list[x]))
+        LFP_timeseries.set_dataset('timestamps', [y/1250. for y in range(len(LFP_data_list[x]))])
+        LFP_timeseries.set_dataset('electrode_idx', electrode_idx)
+    #custom LFP information in /general
+    LFP_info = extracellular_ephys.make_custom_group('LFP_info')
+    LFP_info.set_custom_dataset('nChannels', session.LFP_meta_dict['nChannels'])         #redundant but oh well
+    LFP_info.set_custom_dataset('samplingRate', session.LFP_meta_dict['samplingRate'], attrs= {'units': 'Hz'})
+    LFP_info.set_custom_dataset('voltageRange', session.LFP_meta_dict['voltageRange'])
+    LFP_info.set_custom_dataset('amplification', session.LFP_meta_dict['amplification'])
+    LFP_info.set_custom_dataset('offset', session.LFP_meta_dict['offset'])
         
         
+    f.close()
+    
+    print 'Finished writing .nwb file'
+    session.cleanup()
+    
+    os.chdir(cwd)
+    
+def write_LFP(sessionName):
+    '''
+    Write a .nwb file with only LFP data.
+    '''
+    
+    os.chdir('/media/data/Dropbox (NewmanLab)/BuzsakiData/Hippocampus/hc-3/LFP_data')
+    print 'writing to ' +os.getcwd()
+    f = nwb_file.create(sessionName+'.LFP_data.nwb')
+    session = Session(sessionName)
+    
+    #get raw LFP data
+    LFP_data_list = session.load_LFPdata()
+    
+    for x in range(len(session.cluster_times_list)):
+        name = ('shank_', str(x))
+        shank = f.make_group('<module>', ''.join(name))
+        
+        #LFP directory
+        LFP = shank.make_group('LFP', attrs = {'help': 'LFP data from one or more channels. Filter properties should be noted in the ElectricalSeries',})
+        LFP_timeseries = LFP.make_group('<ElectricalSeries>', 'LFP timeseries', attrs = {'help': 'Stores acquired voltage data from extracellular recordings',
+                        'source': 'Data as reported in experiment files'})
+        LFP_timeseries.set_dataset('data', LFP_data_list[x], attrs = {'conversion': '1.0', 'resolution': '3.052E-7', 'units': 'Volts'})
+        LFP_timeseries.set_dataset('num_samples', len(LFP_data_list[x]))
+        LFP_timeseries.set_dataset('timestamps', [x/1250 for x in range(len(LFP_data_list[x]))])
         
     f.close()
     
@@ -501,12 +567,25 @@ def test_stuff(sessionName):
     
     
 #test_stuff('ec013.156')
-#test_stuff('ec014.468')
 
+write_nwb('ec012ec.356')
 write_nwb('ec013.156')
-#write_nwb('ec014.639')
-#write_nwb('ec013.756')
-#write_nwb('750')
+write_nwb('ec013.157')
+write_nwb('ec013.756')
+write_nwb('ec013.965')
+write_nwb('ec014.468')
+write_nwb('ec014.639')
+write_nwb('ec016.234')
+write_nwb('ec016.749')
 
+#write_LFP('ec012ec.356')
+#write_LFP('ec013.156')
+#write_LFP('ec013.157')
+#write_LFP('ec013.756')
+#write_LFP('ec013.965')
+#write_LFP('ec014.468')
+#write_LFP('ec014.639')
+#write_LFP('ec016.234')
+#write_LFP('ec016.749')
 
 
