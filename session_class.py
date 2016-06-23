@@ -1,3 +1,11 @@
+######## session_class.py ########
+#gets information about a given Buzsaki session so that it can be imported
+#to Neurodata Without Borders (nwb) format.
+#
+#
+##################################
+
+
 #record directory that houses the program
 cwd = '/media/data/Dropbox (NewmanLab)/docs (1)/docs_Bryce/CMB2NWBproject/Test_Scripts'
 target_data = '/media/data/Dropbox (NewmanLab)/BuzsakiData/Hippocampus/hc-3'
@@ -7,18 +15,13 @@ target_api = '/media/data/Dropbox (NewmanLab)/docs (1)/docs_Bryce/CMB2NWBproject
 import os
 
 import numpy
+import matplotlib.pyplot as plt
 import h5py as h5
 import csv
 import itertools
 from collections import OrderedDict
 import xml.etree.ElementTree as ET
-#from decimal import *
 
-os.chdir(target_api)
-from nwb import nwb_file
-from nwb import utils
-from nwb import nwb_core
-os.chdir(cwd)
 
 
 #a background function to sort lists in a human-friendly way
@@ -140,16 +143,18 @@ class Session():
             array = array[1:].astype(int)                   #trim the first line since it's not data
             self.cluster_num_list.append(array)
         
-        #feature data from each shank (as a list, data from each shank)
-        self.fet_files = []
-        for i in os.listdir(os.getcwd()):                   #get each .fet file
-            if '.fet' in i and i.index('.fet') == len(sessionName):
-                self.fet_files.append(i)
-        sort_nicely(self.fet_files)
-        self.feature_data_list = []
-        for x in range(len(self.fet_files)):
-            features = numpy.genfromtxt(self.fet_files[x], skip_header=1, usecols = ((x) for x in range(24)))
-            self.feature_data_list.append(features)
+######## omitting this for now due to discrepancies in .fet file format for sessions ec016.234 and ec016.749
+######## note that these discrepancies also exist in other sessions like ec013.965
+#        #feature data from each shank (as a list, data from each shank)
+#        self.fet_files = []
+#        for i in os.listdir(os.getcwd()):                   #get each .fet file
+#            if '.fet' in i and i.index('.fet') == len(sessionName):
+#                self.fet_files.append(i)
+#        sort_nicely(self.fet_files)
+#        self.feature_data_list = []
+#        for x in range(len(self.fet_files)):
+#            features = numpy.genfromtxt(self.fet_files[x], skip_header=1, usecols = ((x) for x in range(24)))
+#            self.feature_data_list.append(features)
             
         
         os.chdir(cwd)
@@ -204,10 +209,6 @@ class Session():
         
         print '***Calculating intermediate rat position - this may take some time.***'
         dict_3 = {}
-        if len(dict_1.keys()) <= len(dict_2.keys()):        #use the LED data with the fewest valid positions as reference to ensure proper position calculations
-            reference_dict = dict_1
-        else: reference_dict = dict_2
-#        for i in range (len(reference_dict.keys())):
         for i in range (len(pos_timestamps)):
             if pos_timestamps[i] not in dict_1.keys(): continue
             if pos_timestamps[i] not in dict_2.keys(): continue
@@ -300,22 +301,26 @@ class Session():
 
         print '***Loading LFP data - this may take some time.***'
         with open(self.sessionName+ '.eeg', 'rb') as f:
-            all_LFP_data = numpy.fromfile(f, numpy.int16).reshape((-1, nChannels))
+            self.all_LFP_data = numpy.fromfile(f, numpy.int16).reshape((-1, nChannels))
             f.close()
-            
-        #get LFP data from only the active channels
-        self.LFP_data = numpy.empty([all_LFP_data.shape[0], int(active_channels[-1])+1])
-        for i in active_channels:
-            self.LFP_data[:, i] = all_LFP_data[:, i]
-        self.LFP_data = numpy.around(3333333333./10921799911533422. * self.LFP_data, 11)
+        self.all_LFP_data = numpy.around(3333333333./10921799911533422. * self.all_LFP_data, 11)
                                     #this value is a conversion factor from raw LFP to volts
                                     #obtained from comparison of sample LFP data and values in volts
+            
+        #get LFP data from only the active channels
+        self.LFP_data = numpy.empty([self.all_LFP_data.shape[0], int(active_channels[-1])+1])        #assumes the same number of lines exists for all channels
+        for i in active_channels:
+            self.LFP_data[:, i] = self.all_LFP_data[:, i]
+
+        #above, 'self.LFP_data' will have indices for all active/inactive channels, but will have 0.0 for all
+        #inactive entries
         
-        data = self.access_LFPdata(shanks)
+        data = self.access_shankLFP(shanks)
+        self.LFP_timestamps = [x/1250. for x in range(len(data[0]))]
         print '***Done loading LFP data.***\n'
         return data
         
-    def access_LFPdata(self, shank):
+    def access_shankLFP(self, shank):
         '''
         Accesses the LFP data for a shank(s) specified by the "shank" integer/list parameter.
         Called by load_LFPdata() but can also be called by user to access specific sets.
@@ -338,15 +343,36 @@ class Session():
                 LFP_data_slice_list.append(LFP_data_slice)
             return LFP_data_slice_list
             
-        #to save LFP data as a file: do "numpy.savetxt('name', self.access_LFPdata(X), fmt='%.10f', delimiter=',')
+        #to save LFP data as a file: do "numpy.savetxt('name', self.access_shankLFP(X), fmt='%.10f', delimiter=',')
                                                                     #'X' is the shank you want data from
-        
-    def access_LFPmetadata(self):
+
+    def adjusted_LFP(self):
         '''
-        Accesses the misc. metadata fields regarding the session's LFP data.
+        Gets LFP data in a format usable for CSD calculation.
         '''
         
-               
+        curr_channels = [self.active_groups_channels[x] for x in range(session.num_shanks)]
+        for y in range(session.num_shanks):
+            LFP_data_slice = numpy.empty([session.LFP_data.shape[0], len(curr_channels[y])])
+            for z in range(len(curr_channels[y])):
+                LFP_data_slice[:, z] = session.LFP_data[:, curr_channels[y][z]]
+            if y == 0:
+                active_LFPdata = LFP_data_slice
+            else:
+                active_LFPdata = numpy.concatenate((active_LFPdata, LFP_data_slice), axis=1)
+        return active_LFPdata
+        
+    def CSD(self, LFP):
+        '''
+        Performs CSD analysis on given LFP data.
+        '''
+        
+        #Adapted from http://fmatoolbox.sourceforge.net/API/FMAToolbox/Analyses/CSD.html
+        mean = LFP.mean(axis=0)
+        mean = mean.reshape(1,-1)
+        LFP = LFP - numpy.tile(mean, (len(self.LFP_timestamps), 1))
+        d = -numpy.diff(LFP,2,1)
+        return d
         
     def cleanup(self):
         '''
@@ -359,233 +385,5 @@ class Session():
         
         
         print 'Done cleaning files'
-        
-        
-def write_nwb(sessionName):
-
-    #numpy.savetxt('nexttestdata', data, fmt = '%.6e', delimiter=',')   #this is the format that preserves precision
-    
-    ######################
-    ### WRITE TO FILE ####
-    ######################
-    
-    os.chdir(target_api)        #location to write the .nwb file to
-    print 'writing to ' +os.getcwd()
-    f = nwb_file.create(sessionName+'.nwb')
-    
-    #### generate default directories ####
-    
-    timeseries = f.make_group("<TimeSeries>", "timeseries", path="/acquisition/timeseries")
-#    images = f.make_group('<image_X>')
-#    acquisition = f.make_group('acquisition')
-#    images = f.make_group('<image_X>')
-#    timeseries = f.make_group('timeseries')
-    
-    #### generate a Session object for the desired session ####
-    print '***Creating a Session object for the given session name - this may take some time.***'
-    session = Session(sessionName)
-    print '***Done creating a Session object.***\n'
-    
-    #### generate preliminary info/data ####
-    
-    #get raw position data
-    posDict = session.make_posDict()
-    #get raw LFP data
-    LFP_data_list = session.load_LFPdata()
-    
-    #### create groups ####
-    head_position = f.make_group('<module>', 'head_position')
-    Position = head_position.make_group('Position', attrs= {'source': 'Data as reported in experiment files', 
-                    'help': 'Position data, whether along the x, xy or xyz axis.'})
-    
-    #### create general groups ####
-    extracellular_ephys = f.make_group('extracellular_ephys')
-    extracellular_ephys.set_dataset('electrode_group', session.rec_site_group)
-    extracellular_ephys.set_dataset('electrode_map', session.rec_site_map, attrs= {'units': 'meters',
-            'Description': 'Depths of each recording site along each shank relative to the location of the top-most site (eg. where value = 0.0)'})
-    for z in range(session.num_shanks):
-        pos = extracellular_ephys.make_group('<electrode_group_X>', 'p'+str(z))
-        pos.set_dataset('location', session.epos[z])
-    
-    
-    #### write LED1 position data ####
-    LED1 = Position.make_group('<SpatialSeries>', 'LED 1', attrs= {'description': 
-                    'LED 1, as reported in original data. Physical position of LED (eg, left, front, etc) not known', 'source': '',
-                     'comments': '', 'ancestry': 'TimeSeries,SpatialSeries', 'neurodata_type': 'TimeSeries', 'help': 
-                     'Stores points in space over time. The data[] array structure is [num samples][num spatial dimenstions'})
-    
-    pos_data_1 = posDict[0].values()
-    pos_timestamps_1 = posDict[0].keys()
-    pos_num_samples_1 = len(pos_timestamps_1)
-    
-    LED1.set_dataset('data', pos_data_1, attrs= {'unit': 'Meters', 'conversion': '1', 'resolution': '0.001'})
-            #I changed the conversion/resolution due to using CM instead of M; make sure they are correct
-    LED1.set_dataset('timestamps', pos_timestamps_1, attrs= {'unit': 'Seconds', 'interval': '1'})
-    LED1.set_dataset('num_samples', pos_num_samples_1)
-    LED1.set_dataset('reference_frame', 'Top of room, as seen from camera')
-    
-    #### write LED2 position data ####
-    LED2 = Position.make_group('<SpatialSeries>', 'LED 2', attrs= {'description': 
-                    'LED 2, as reported in original data. Physical position of LED (eg, left, front, etc) not known', 'source': '',
-                     'comments': '', 'ancestry': 'TimeSeries,SpatialSeries', 'neurodata_type': 'TimeSeries', 'help': 
-                     'Stores points in space over time. The data[] array structure is [num samples][num spatial dimenstions'})
-    
-    pos_data_2 = posDict[1].values()
-    pos_timestamps_2 = posDict[1].keys()
-    pos_num_samples_2 = len(pos_timestamps_2)
-    
-    LED2.set_dataset('data', pos_data_2, attrs= {'unit': 'Meters', 'conversion': '1', 'resolution': '0.001'})
-            #I changed the conversion/resolution due to using CM instead of M; make sure they are correct
-    LED2.set_dataset('timestamps', pos_timestamps_2, attrs = {'unit': 'Seconds', 'interval': '1'})
-    LED2.set_dataset('num_samples', pos_num_samples_2)
-    LED2.set_dataset('reference_frame', 'Top of room, as seen from camera')
-    
-    #### write intermediate position data ####
-    
-    position = Position.make_group('<SpatialSeries>', 'position', attrs = {'description': 'Position intermediate to LED1 and LED2',
-                    'source': '', 'comments': '', 'ancestry': 'TimeSeries,SpatialSeries', 'neurodata_type': 'TimeSeries', 'help': 
-                     'Stores points in space over time. The data[] array structure is [num samples][num spatial dimenstions'})
-    
-    pos_data_real = posDict[2].values()
-    pos_timestamps_real = posDict[2].keys()
-    pos_num_samples_real = len(pos_timestamps_real)
-    
-    position.set_dataset('data', pos_data_real, attrs = {'unit': 'Meters', 'conversion': '1', 'resolution': '0.001'})
-            #the exemplar files have the real position values around 10^1 or 10^2 degrees of magnitude, in meters -> I think this is an error on their part
-    position.set_dataset('timestamps', pos_timestamps_real, attrs = {'unit': 'Seconds', 'interval': '1'})
-    position.set_dataset('num_samples', pos_num_samples_real)
-    position.set_dataset('reference_frame', 'Top of room, as seen from camera')
-
-    #### create nwb groups/datasets for each electrode (eg. shank_0, shank_1, etc.) ####
-    for x in range(session.num_shanks):
-#    for x in range(2):
-        name = ('shank_', str(x))
-        shank = f.make_group('<module>', ''.join(name))
-        
-        #Clustering directory
-        Clustering = shank.make_group('Clustering', attrs = {'help': 'Clustered spike data, whether from automatic \
-clustering tools (eg, klustakwik) or as a result of manual sorting', 'source': 'FeatureExtraction interface, this module'})
-        Clustering.set_dataset('times', session.cluster_times_list[x])
-        Clustering.set_dataset('num', session.cluster_num_list[x])
-        Clustering.set_dataset('description', 'Cluster #0 is electrical noise, #1 is multi-unit/unsorted, and higher numbers are unit clusters')
-        ####placeholders####
-        Clustering.set_dataset('peak_over_rms', [0.0,0.0,0.0])
-        ####
-        
-        cluster_nums, times = session.get_unit_times(x)
-        Clustering.set_dataset('cluster_nums', cluster_nums)
-        #UnitTimes directory in Clustering
-        UnitTimes = shank.make_group('UnitTimes', attrs= {'description': 'Estimated spike times from a single unit',
-                                        'source': 'Clustering interface, this module.'})
-        UnitTimes.set_dataset('unit_list', [str(j) for j in cluster_nums])
-        for i in times.keys():
-            cluster_set = UnitTimes.make_group('<unit_N>', str(i))
-            cluster_set.set_dataset('times', times[i])
-            cluster_set.set_dataset('source', 'From klustakwik, curated with Klusters')
-            cluster_set.set_dataset('unit_description', 'unit '+str(i))      
-        
-        #FeatureExtraction directory
-        electrode_idx = numpy.array(session.active_groups_channels[x]).reshape(-1,1)
-        electrode_idx = numpy.squeeze(electrode_idx)
-        FeatureExtraction = shank.make_group('FeatureExtraction', attrs = {'help': 'Container for salient features of detected events',
-                        'source': 'EventWaveform interface, this module'})
-        FeatureExtraction.set_dataset('features', session.feature_data_list[x])
-        FeatureExtraction.set_dataset('electrode_idx', electrode_idx)
-        FeatureExtraction.set_dataset('times', session.cluster_times_list[x])
-        FeatureExtraction.set_dataset('description', ['PC1','PC2','PC3'])
-        ######temporary, need to set this to whatever the features are per session instead of hard coding it
-        
-        #LFP directory
-        LFP = shank.make_group('LFP', attrs = {'help': 'LFP data from one or more channels. Filter properties should be noted in the ElectricalSeries',})
-        LFP_timeseries = LFP.make_group('<ElectricalSeries>', 'LFP timeseries', attrs = {'help': 'Stores acquired voltage data from extracellular recordings',
-                        'source': 'Data as reported in experiment files'})
-        LFP_timeseries.set_dataset('data', LFP_data_list[x], attrs = {'conversion': '1.0', 'resolution': '3.052E-7', 'units': 'Volts'})
-        LFP_timeseries.set_dataset('num_samples', len(LFP_data_list[x]))
-        LFP_timeseries.set_dataset('timestamps', [y/1250. for y in range(len(LFP_data_list[x]))])
-        LFP_timeseries.set_dataset('electrode_idx', electrode_idx)
-    #custom LFP information in /general
-    LFP_info = extracellular_ephys.make_custom_group('LFP_info')
-    LFP_info.set_custom_dataset('nChannels', session.LFP_meta_dict['nChannels'])         #redundant but oh well
-    LFP_info.set_custom_dataset('samplingRate', session.LFP_meta_dict['samplingRate'], attrs= {'units': 'Hz'})
-    LFP_info.set_custom_dataset('voltageRange', session.LFP_meta_dict['voltageRange'])
-    LFP_info.set_custom_dataset('amplification', session.LFP_meta_dict['amplification'])
-    LFP_info.set_custom_dataset('offset', session.LFP_meta_dict['offset'])
-        
-        
-    f.close()
-    
-    print 'Finished writing .nwb file'
-    session.cleanup()
-    
-    os.chdir(cwd)
-    
-def write_LFP(sessionName):
-    '''
-    Write a .nwb file with only LFP data.
-    '''
-    
-    os.chdir('/media/data/Dropbox (NewmanLab)/BuzsakiData/Hippocampus/hc-3/LFP_data')
-    print 'writing to ' +os.getcwd()
-    f = nwb_file.create(sessionName+'.LFP_data.nwb')
-    session = Session(sessionName)
-    
-    #get raw LFP data
-    LFP_data_list = session.load_LFPdata()
-    
-    for x in range(len(session.cluster_times_list)):
-        name = ('shank_', str(x))
-        shank = f.make_group('<module>', ''.join(name))
-        
-        #LFP directory
-        LFP = shank.make_group('LFP', attrs = {'help': 'LFP data from one or more channels. Filter properties should be noted in the ElectricalSeries',})
-        LFP_timeseries = LFP.make_group('<ElectricalSeries>', 'LFP timeseries', attrs = {'help': 'Stores acquired voltage data from extracellular recordings',
-                        'source': 'Data as reported in experiment files'})
-        LFP_timeseries.set_dataset('data', LFP_data_list[x], attrs = {'conversion': '1.0', 'resolution': '3.052E-7', 'units': 'Volts'})
-        LFP_timeseries.set_dataset('num_samples', len(LFP_data_list[x]))
-        LFP_timeseries.set_dataset('timestamps', [x/1250 for x in range(len(LFP_data_list[x]))])
-        
-    f.close()
-    
-    print 'Finished writing .nwb file'
-    session.cleanup()
-    
-    os.chdir(cwd)
-    
-    
-def test_stuff(sessionName):
-    os.chdir(target_api)
-    
-    print '\n\ntesting\n\n'
-    
-    session = Session(sessionName)
-    os.chdir(session.sessionDir)
-    session.load_LFPdata()
-    
-    session.cleanup()
-    
-    os.chdir(cwd)
-    
-    
-#test_stuff('ec013.156')
-
-write_nwb('ec012ec.356')
-write_nwb('ec013.156')
-write_nwb('ec013.157')
-write_nwb('ec013.756')
-write_nwb('ec013.965')
-write_nwb('ec014.468')
-write_nwb('ec014.639')
-write_nwb('ec016.234')
-write_nwb('ec016.749')
-
-#write_LFP('ec012ec.356')
-#write_LFP('ec013.156')
-#write_LFP('ec013.157')
-#write_LFP('ec013.756')
-#write_LFP('ec013.965')
-#write_LFP('ec014.468')
-#write_LFP('ec014.639')
-#write_LFP('ec016.234')
-#write_LFP('ec016.749')
 
 
