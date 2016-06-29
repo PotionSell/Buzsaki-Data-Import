@@ -14,7 +14,7 @@ target_api = '/media/data/Dropbox (NewmanLab)/docs (1)/docs_Bryce/CMB2NWBproject
 
 import os
 
-import numpy
+import numpy as np
 import matplotlib.pyplot as plt
 import h5py as h5
 import csv
@@ -42,7 +42,7 @@ class Session():
         
         #### generate basic session info from metadata files ####
         os.chdir(target_data + '/Metadata/hc3-metadata-tables')
-        sessions = numpy.recfromcsv('hc3-session.csv', delimiter=',', filling_values=numpy.nan, 
+        sessions = np.recfromcsv('hc3-session.csv', delimiter=',', filling_values=np.nan, 
                                 case_sensitive=True, deletechars='', replace_space=' ') #an array of all session data
         session = None
         for session in sessions:
@@ -70,16 +70,16 @@ class Session():
         self.sessionDir = target_data+'/'+self.topGroup+'/'+self.topGroup+'/'+self.sessionName
         
         #electrode position information - the positions of the session's electrodes in an array
-        epos_data = numpy.genfromtxt('hc3-epos.csv', delimiter = ',', dtype = None)
+        epos_data = np.genfromtxt('hc3-epos.csv', delimiter = ',', dtype = None)
         for epos in epos_data:
             if self.topGroup == str(epos[0]):
                 break
         self.epos = epos
         for x in range (len(self.epos)-1, -1, -1):              #trim empty entries
             if self.epos[x] == '""':
-                self.epos = numpy.delete(self.epos, x, None)
+                self.epos = np.delete(self.epos, x, None)
                 x = x-1
-        self.epos = numpy.delete(self.epos, [0,1], None)
+        self.epos = np.delete(self.epos, [0,1], None)
         self.num_shanks = len(self.epos)
         
         #groupings of recording sites (eg. per shank)
@@ -90,10 +90,10 @@ class Session():
                 
         #relative depth map of recording sites
         num_sites = len(self.rec_site_group)
-        self.rec_site_map = numpy.zeros((num_sites, 3))
+        self.rec_site_map = np.zeros((num_sites, 3))
         for x in range(num_sites):
             self.rec_site_map[x,0] = 0.00002*(x%8)
-        self.rec_site_map = numpy.around(self.rec_site_map, 5)
+        self.rec_site_map = np.around(self.rec_site_map, 5)
         
         
         #### generate preliminary adaptation files (.csv, etc. ) needed by python from session files ####
@@ -112,11 +112,11 @@ class Session():
         #### generate raw session data from session files ####
         
         #LED position data
-        self.LED_posData = numpy.genfromtxt(self.sessionName+ '.whl', delimiter='\t')
+        self.LED_posData = np.genfromtxt(self.sessionName+ '.whl', delimiter='\t')
         self.LED_posData = self.LED_posData * 0.01        #convert to meters
         
 #        #LED position data
-#        self.LED_posData = numpy.genfromtxt(self.sessionName+'.whl.csv', delimiter = ',')
+#        self.LED_posData = np.genfromtxt(self.sessionName+'.whl.csv', delimiter = ',')
 #        self.LED_posData = self.LED_posData * 0.01
         
         #cluster timestamp data from each shank (as a list, data from each shank)
@@ -127,8 +127,8 @@ class Session():
         sort_nicely(self.res_files)
         self.cluster_times_list = []                        #create a list of data arrays from files
         for x in range(len(self.res_files)):
-            array = numpy.genfromtxt(self.res_files[x])
-            array = numpy.around(1./20000. * array, 10)     #converts to seconds
+            array = np.genfromtxt(self.res_files[x])
+            array = np.around(1./20000. * array, 10)     #converts to seconds
             self.cluster_times_list.append(array)
         
         #cluster number data from each shank (as a list, data from each shank)
@@ -139,7 +139,7 @@ class Session():
         sort_nicely(self.clu_files)
         self.cluster_num_list = []
         for x in range(len(self.clu_files)):
-            array = numpy.genfromtxt(self.clu_files[x])
+            array = np.genfromtxt(self.clu_files[x])
             array = array[1:].astype(int)                   #trim the first line since it's not data
             self.cluster_num_list.append(array)
         
@@ -153,7 +153,7 @@ class Session():
 #        sort_nicely(self.fet_files)
 #        self.feature_data_list = []
 #        for x in range(len(self.fet_files)):
-#            features = numpy.genfromtxt(self.fet_files[x], skip_header=1, usecols = ((x) for x in range(24)))
+#            features = np.genfromtxt(self.fet_files[x], skip_header=1, usecols = ((x) for x in range(24)))
 #            self.feature_data_list.append(features)
             
         
@@ -173,7 +173,7 @@ class Session():
         #an interval found in old Buzsaki-to-CMB matlab code; supposedly in https://crcns.org/files/data/hc3/crcns-hc3-data-description.pdf
         increment = 1/39.06
         
-        pos_timestamps = numpy.empty([int(self.sessionTime/increment)+10])  #I add 10 to ensure timestamps is longer than data
+        pos_timestamps = np.empty([int(self.sessionTime/increment)+10])  #I add 10 to ensure timestamps is longer than data
                                                                     #(so that timestamps gets trimmed in the structuredDict rather than data)
         
         for i in range(0, pos_timestamps.size):
@@ -195,14 +195,14 @@ class Session():
         
         dict_1 = {}                                                         #dict for LED1 positions
         #####*************
-        for i in range (    int(self.LED_posData.shape[0]   *1)):     #here I assume that there are equal #s of x and y positions
+        for i in range (    int(self.LED_posData.shape[0]   *.01)):     #here I assume that there are equal #s of x and y positions
             if self.LED_posData[i,0] >= 0 and self.LED_posData[i,1] >= 0:         #trim out the invalid position values (-1)
                 dict_1.update({pos_timestamps[i]: self.LED_posData[i,:2]})          #unsorted dict
         dict_1 = OrderedDict(sorted(dict_1.items(), key=lambda t: t[0]))    #sorted dict; could I combine these two steps?
         
         dict_2 = {}                                                         #dict for LED2 positions
         #####************************************************************
-        for i in range (    int(self.LED_posData.shape[0]   *1)):
+        for i in range (    int(self.LED_posData.shape[0]   *.01)):
             if self.LED_posData[i,2] >= 0 and self.LED_posData[i,3] >= 0:
                 dict_2.update({pos_timestamps[i]: self.LED_posData[i,2:]})          #unsorted dict
         dict_2 = OrderedDict(sorted(dict_2.items(), key=lambda t: t[0]))    #sorted dict
@@ -235,13 +235,13 @@ class Session():
         times = {}
 #        for x in range(len(self.cluster_num_list)):
         a = self.cluster_num_list[x]
-        u = numpy.unique(a)                                         #list of different cluster numbers for current shank
-        indices = [numpy.argwhere(i==a) for i in numpy.unique(a)]   #list of indices of each cluster firing in the .clu data
+        u = np.unique(a)                                         #list of different cluster numbers for current shank
+        indices = [np.argwhere(i==a) for i in np.unique(a)]   #list of indices of each cluster firing in the .clu data
         for y in range(len(u)):                                     #for each cluster in current shank
             shank_cluster_indices = indices[y]
             shank_times = self.cluster_times_list[x]
             t = shank_times[shank_cluster_indices]                  #find only the times that correspond to the current cluster firing
-            times.update({u[y]: numpy.squeeze(t, axis=(1,))})       #numpy.squeeze changes from 2D to 1D
+            times.update({u[y]: np.squeeze(t, axis=(1,))})       #np.squeeze changes from 2D to 1D
         return (u, times)
         
     def load_LFPdata(self):
@@ -278,7 +278,7 @@ class Session():
         nChannels = int(root.find('acquisitionSystem').find('nChannels').text)
         
         #I do not currently need the following variables:
-#        channels = numpy.array([active_channels])        #we're going to be reading/writing all active channels
+#        channels = np.array([active_channels])        #we're going to be reading/writing all active channels
 #        lfp_rate = int(root.find('fieldPotentials').find('lfpSamplingRate').text)
 #        precision = 'int16'
 #        sampleSize = 2              #hardcoded since this is the default precision for the LFP data
@@ -301,19 +301,18 @@ class Session():
 
         print '***Loading LFP data - this may take some time.***'
         with open(self.sessionName+ '.eeg', 'rb') as f:
-            self.all_LFP_data = numpy.fromfile(f, numpy.int16).reshape((-1, nChannels))
+            self.all_LFP_data = np.fromfile(f, np.int16).reshape((-1, nChannels))
             f.close()
-        self.all_LFP_data = numpy.around(3333333333./10921799911533422. * self.all_LFP_data, 11)
+        self.all_LFP_data = np.around(3333333333./10921799911533422. * self.all_LFP_data, 11)
                                     #this value is a conversion factor from raw LFP to volts
                                     #obtained from comparison of sample LFP data and values in volts
             
         #get LFP data from only the active channels
-        self.LFP_data = numpy.empty([self.all_LFP_data.shape[0], int(active_channels[-1])+1])        #assumes the same number of lines exists for all channels
+        self.LFP_data = np.empty([self.all_LFP_data.shape[0], int(active_channels[-1])+1])        #assumes the same number of lines exists for all channels
         for i in active_channels:
             self.LFP_data[:, i] = self.all_LFP_data[:, i]
-        
-        #above, 'self.LFP_data' will have indices for all active/inactive channels, but will have 0.0 for all
-        #inactive entries
+        self.LFP_data = self.LFP_data[:, ~np.all(self.LFP_data == 0, axis=0)]
+            #remove all 0s from the data, leaving only active channel data (and the last, sometimes irrelevant, channel)
         
         data = self.access_shankLFP(shanks)
         self.LFP_timestamps = [x/1250. for x in range(len(data[0]))]
@@ -328,14 +327,16 @@ class Session():
         Accesses the LFP data for a shank(s) specified by the "shank" integer/list parameter.
         Called by load_LFPdata() but can also be called by user to access specific sets.
         '''
-        
+        ###############should change this and the write_nwb so that I can just use the already-defined
+        ##self.LFP_data or self.all_LFP_data along with the dictionary of valid channels
+        ##to import the lfp data
         os.chdir(self.sessionDir)
         
         if type(shank) is int:
             curr_channels = self.active_groups_channels[shank]
-            LFP_data_slice = numpy.empty([self.LFP_data.shape[0], len(curr_channels)])
+            LFP_data_slice = np.empty([self.all_LFP_data.shape[0], len(curr_channels)])
             for x in range(len(curr_channels)):
-                LFP_data_slice[:, x] = self.LFP_data[:, curr_channels[x]]
+                LFP_data_slice[:, x] = self.all_LFP_data[:, curr_channels[x]]
             os.chdir(cwd)
             return LFP_data_slice
         
@@ -343,14 +344,14 @@ class Session():
             curr_channels = [self.active_groups_channels[x] for x in shank]
             LFP_data_slice_list = []
             for y in range(len(shank)):
-                LFP_data_slice = numpy.empty([self.LFP_data.shape[0], len(curr_channels[y])])
+                LFP_data_slice = np.empty([self.all_LFP_data.shape[0], len(curr_channels[y])])
                 for z in range(len(curr_channels[y])):
-                    LFP_data_slice[:, z] = self.LFP_data[:, curr_channels[y][z]]
+                    LFP_data_slice[:, z] = self.all_LFP_data[:, curr_channels[y][z]]
                 LFP_data_slice_list.append(LFP_data_slice)
             os.chdir(cwd)
             return LFP_data_slice_list
             
-        #to save LFP data as a file: do "numpy.savetxt('name', self.access_shankLFP(X), fmt='%.10f', delimiter=',')
+        #to save LFP data as a file: do "np.savetxt('name', self.access_shankLFP(X), fmt='%.10f', delimiter=',')
                                                                     #'X' is the shank you want data from
 
     def adjusted_LFP(self):
@@ -362,13 +363,13 @@ class Session():
         
         curr_channels = [self.active_groups_channels[x] for x in range(session.num_shanks)]
         for y in range(session.num_shanks):
-            LFP_data_slice = numpy.empty([session.LFP_data.shape[0], len(curr_channels[y])])
+            LFP_data_slice = np.empty([session.LFP_data.shape[0], len(curr_channels[y])])
             for z in range(len(curr_channels[y])):
                 LFP_data_slice[:, z] = session.LFP_data[:, curr_channels[y][z]]
             if y == 0:
                 active_LFPdata = LFP_data_slice
             else:
-                active_LFPdata = numpy.concatenate((active_LFPdata, LFP_data_slice), axis=1)
+                active_LFPdata = np.concatenate((active_LFPdata, LFP_data_slice), axis=1)
         
         os.chdir(cwd)
         
@@ -384,8 +385,8 @@ class Session():
         #Adapted from http://fmatoolbox.sourceforge.net/API/FMAToolbox/Analyses/CSD.html
         mean = LFP.mean(axis=0)
         mean = mean.reshape(1,-1)
-        LFP = LFP - numpy.tile(mean, (len(self.LFP_timestamps), 1))
-        d = -numpy.diff(LFP,2,1)
+        LFP = LFP - np.tile(mean, (len(self.LFP_timestamps), 1))
+        d = -np.diff(LFP,2,1)
         
         os.chdir(cwd)
         
