@@ -203,17 +203,6 @@ class Session():
             ]})
         dict_3 = OrderedDict(sorted(dict_3.items(), key=lambda t: t[0]))
         
-#        #testing for dict_3 errors
-#        with open('dict_1.csv', 'wb') as f:
-#            w = csv.writer(f)
-#            w.writerows(dict_1.items())
-#            f.close()
-#        with open('dict_2.csv', 'wb') as f:
-#            w = csv.writer(f)
-#            w.writerows(dict_2.items())
-#            f.close()
-#        #
-        
         print '***Done calculating position.***\n'
         return (dict_1,dict_2,dict_3)
         
@@ -251,9 +240,6 @@ class Session():
         for i in root.find('fieldPotentials'):
             self.LFP_meta_dict.update({i.tag: i.text})
         
-
-        
-        
         #match the shanks with their active sites
         self.active_groups_channels = {}; group = []; count = 0; shanks = []
         for i in root.find('anatomicalDescription').find('channelGroups'):
@@ -271,28 +257,6 @@ class Session():
         self.groups_channels = {}
         for x in range(self.num_shanks):
             self.groups_channels.update({x: [y for y in range(8*x, 8*(x+1))]})
-        
-        #I do not currently need the following variables:
-#        channels = np.array([active_channels])        #we're going to be reading/writing all active channels
-#        lfp_rate = int(root.find('fieldPotentials').find('lfpSamplingRate').text)
-#        precision = 'int16'
-#        sampleSize = 2              #hardcoded since this is the default precision for the LFP data
-        
-#        with open(self.sessionName+ '.eeg', 'rb') as f:
-#            f.seek(0,2)
-#            last_pos = f.tell()
-#            
-#            #in case all channels do not have the same number of samples
-#            maxNSamplesPerChannel = last_pos/nChannels/sampleSize
-#            nSamplesPerChannel = maxNSamplesPerChannel
-#            
-#            maxSamplesPerChunk = 10000
-#            nSamples = nSamplesPerChannel*nChannels
-##            if nSamples <= maxSamplesPerChunk:
-##                data = self.LoadChunk(nChannels, channels, nSamples, precision)
-##                print data.shape
-##            data = self.LoadChunk(nChannels, channels, nSamples, precision)
-#            f.close()
 
         print '***Loading LFP data - this may take some time.***'
         with open(self.sessionName+ '.eeg', 'rb') as f:
@@ -317,74 +281,6 @@ class Session():
         
         os.chdir(cwd)
         print '***Done loading LFP data.***\n'
-        
-        #old implementation:
-#        #get LFP data from only the active channels
-#        self.LFP_data = np.empty([raw_LFP.shape[0], int(active_channels[-1])+1])        #assumes the same number of lines exists for all channels
-#        for i in active_channels:
-#            self.LFP_data[:, i] = raw_LFP[:, i]
-#        self.LFP_data = self.LFP_data[:, ~np.all(self.LFP_data == 0, axis=0)]
-#            #remove all 0s from the data, leaving only active channel data (and the last, sometimes irrelevant, channel)
-#        data = self.get_shankLFP(shanks)
-#        self.LFP_timestamps = [x/1250. for x in range(len(data[0]))]
-#        print '***Done loading LFP data.***\n'
-#        
-#        os.chdir(cwd)
-#        
-#        return data
-
-        
-        #should be defunct since this isn't needed by load_LFPdata, and the user can easily access LFP
-#    def get_shankLFP(self, shank):
-#        '''
-#        Accesses the LFP data for a shank(s) specified by the "shank" integer/list parameter.
-#        Called by load_LFPdata() but can also be called by user to access specific sets.
-#        '''
-#        ###############should change this and the write_nwb so that I can just use the already-defined
-#        ##self.LFP_data or self.raw_LFP along with the dictionary of valid channels
-#        ##to import the lfp data
-#        os.chdir(self.sessionDir)
-#        
-#        if type(shank) is int:
-#            curr_channels = self.active_groups_channels[shank]
-#            LFP_data_slice = np.empty([self.raw_LFP.shape[0], len(curr_channels)])
-#            for x in range(len(curr_channels)):
-#                LFP_data_slice[:, x] = self.raw_LFP[:, curr_channels[x]]
-#            os.chdir(cwd)
-#            return LFP_data_slice
-#        
-#        elif type(shank) is list:
-#            curr_channels = [self.active_groups_channels[x] for x in shank]
-#            LFP_data_slice_list = []
-#            for y in range(len(shank)):
-#                LFP_data_slice = np.empty([self.raw_LFP.shape[0], len(curr_channels[y])])
-#                for z in range(len(curr_channels[y])):
-#                    LFP_data_slice[:, z] = self.raw_LFP[:, curr_channels[y][z]]
-#                LFP_data_slice_list.append(LFP_data_slice)
-#            os.chdir(cwd)
-#            return LFP_data_slice_list
-
-#defunct since I don't need a new format to calculate CSD
-#    def adjusted_LFP(self):
-#        '''
-#        Gets LFP data in a format usable for CSD calculation.
-#        '''
-#        
-#        os.chdir(self.sessionDir)
-#        
-#        curr_channels = [self.active_groups_channels[x] for x in range(session.num_shanks)]
-#        for y in range(session.num_shanks):
-#            LFP_data_slice = np.empty([session.LFP_data.shape[0], len(curr_channels[y])])
-#            for z in range(len(curr_channels[y])):
-#                LFP_data_slice[:, z] = session.LFP_data[:, curr_channels[y][z]]
-#            if y == 0:
-#                active_LFPdata = LFP_data_slice
-#            else:
-#                active_LFPdata = np.concatenate((active_LFPdata, LFP_data_slice), axis=1)
-#        
-#        os.chdir(cwd)
-#        
-#        return active_LFPdata
 
     def get_shankLFP(self, shank):
         '''
