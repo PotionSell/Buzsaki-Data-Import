@@ -420,23 +420,51 @@ class Session():
         
         x = 0
         for i in self.active_groups_channels[shank]:
-            print i
             if x == 0:                                          #populate lfp with the first site's data
                 lfp = self.active_LFP[i]
                 lfp = lfp.reshape(-1,1)
-                print lfp.shape
             else:                                               #concatenate the data from the remaining sites
                 target = self.active_LFP[i]
                 target = np.reshape(target, (-1,1))
-                print target.shape
                 lfp = np.concatenate((lfp, target), axis=1)
             x = x + 1
-        self.cool_test = lfp
-#        for i in self.active_groups_channels[shank]:
-#            for x in range(numSites):
-#                if x == 0:
-#                    lfp = 
-#                lfp[:,x] = self.active_LFP[i]
+        mean = lfp.mean(axis=0)
+        mean = mean.reshape(1,-1)
+        lfp = lfp - np.tile(mean, (len(self.LFP_timestamps), 1))
+        d = -np.diff(lfp,2,1)
+        
+        os.chdir(cwd)
+        
+        return d
+        
+    #a perhaps faster version to calculate CSD - uses get_shankLFP instead of
+    #explicitly getting the shank's LFP like get_CSD above
+    def get_CSD2(self, shank):
+        '''
+        Performs CSD analysis on a given shank's lfp data.
+        '''
+        
+        os.chdir(self.sessionDir)
+        
+        #Adapted from http://fmatoolbox.sourceforge.net/API/FMAToolbox/Analyses/CSD.html
+        
+        if shank not in self.active_groups_channels:
+            raise ValueError('requested shank does not have any valid sites or does not exist')
+        numSites = len(self.active_groups_channels[shank])
+        
+        if numSites != 8: print 'only %s valid sites on this shank (should be 8); CSD will be skewed' %numSites
+        
+        lfp_dict = self.get_shankLFP(shank)
+        x = 0
+        for i in lfp_dict:
+            if x == 0:
+                lfp = lfp_dict[i]
+                lfp = lfp.reshape(-1,1)
+            else:
+                target = lfp_dict[i]
+                target = np.reshape(target, (-1,1))
+                lfp = np.concatenate((lfp, target), axis=1)
+            x = x + 1
         mean = lfp.mean(axis=0)
         mean = mean.reshape(1,-1)
         lfp = lfp - np.tile(mean, (len(self.LFP_timestamps), 1))
