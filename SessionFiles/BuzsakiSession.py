@@ -21,7 +21,7 @@ import itertools
 from collections import OrderedDict
 import xml.etree.ElementTree as ET
 
-
+execfile('dict_to_arr.py')
 
 #a background function to sort lists in a human-friendly way
 import re
@@ -177,15 +177,14 @@ class Session():
         pos_timestamps = self.get_posTimestamps()
         
         dict_1 = {}                                                                 #dict for LED1 positions
-        #####*************
-        for i in range (    int(self.LED_posData.shape[0]   *.01)):                 #here I assume that there are equal #s of x and y positions
+        #for testing purposes: adjust the factor of 1 below to load only some posData to save time
+        for i in range (    int(self.LED_posData.shape[0]   *1)):                 #here I assume that there are equal #s of x and y positions
             if self.LED_posData[i,0] >= 0 and self.LED_posData[i,1] >= 0:           #trim out the invalid position values (-1)
                 dict_1.update({pos_timestamps[i]: self.LED_posData[i,:2]})          #unsorted dict
         dict_1 = OrderedDict(sorted(dict_1.items(), key=lambda t: t[0]))            #sorted dict
         
         dict_2 = {}                                                                 #dict for LED2 positions
-        #####************************************************************
-        for i in range (    int(self.LED_posData.shape[0]   *.01)):
+        for i in range (    int(self.LED_posData.shape[0]   *1)):
             if self.LED_posData[i,2] >= 0 and self.LED_posData[i,3] >= 0:
                 dict_2.update({pos_timestamps[i]: self.LED_posData[i,2:]})          #unsorted dict
         dict_2 = OrderedDict(sorted(dict_2.items(), key=lambda t: t[0]))            #sorted dict
@@ -239,6 +238,7 @@ class Session():
             self.LFP_meta_dict.update({i.tag: i.text})
         for i in root.find('fieldPotentials'):
             self.LFP_meta_dict.update({i.tag: i.text})
+            self.LFP_rate = float(i.text)
         
         #match the shanks with their active sites
         self.active_groups_channels = {}; group = []; count = 0; shanks = []
@@ -277,24 +277,31 @@ class Session():
             self.active_LFP.update({i: self.LFP[i]})
         self.active_LFP = OrderedDict(sorted(self.active_LFP.items(), key=lambda t: t[0]))  #sort the sites
         
-        self.LFP_timestamps = [x/1250. for x in range(len(raw_LFP[:,0]))]
+        self.LFP_timestamps = [x/self.LFP_rate for x in range(len(raw_LFP[:,0]))]
         
         os.chdir(cwd)
         print '***Done loading LFP data.***\n'
 
-    def get_shankLFP(self, shank):
+    def get_shankLFP(self, shank, active):
         '''
         Gets the LFP data for a given shank. Bear in mind that the returned
         data is in dict format and is hence unsorted.
+        Boolean "active" determines if only active LFP data will be loaded.
         '''
         
         LFP_slice = {}
-        curr_channels = self.groups_channels[shank]
+        if active:
+            curr_channels = self.active_groups_channels[shank]
+        else:
+            curr_channels = self.groups_channels[shank]
+        if len(curr_channels) != 8:
+                print '*WARNING: shank lfp loaded, but inactive sites omitted. Shank %s has '\
+                    'active sites %s out of total sites %s.' %(shank, curr_channels, self.groups_channels[shank])
         for i in curr_channels:
             LFP_slice.update({i: self.LFP[i]})
             if i not in self.active_LFP.keys():
-                print 'WARNING: data loaded, but site %s is not an active site - '\
-                      'perhaps choose another shank for fully reliable data' %i
+                print '*WARNING: shank lfp loaded, but site %s is not an active site - '\
+                      'perhaps choose another shank for fully reliable data.' %i
         return LFP_slice
         
         
@@ -312,7 +319,7 @@ class Session():
         numSites = len(self.active_groups_channels[shank])
 #        lfp = np.empty([len(self.LFP_timestamps), numSites])
         
-        if numSites != 8: print 'only %s valid sites on this shank (should be 8); CSD will be skewed' %numSites
+        if numSites != 8: print 'WARNING: only %s valid sites on this shank (should be 8); CSD will be skewed' %numSites
         
         x = 0
         for i in self.active_groups_channels[shank]:
@@ -321,7 +328,7 @@ class Session():
                 lfp = lfp.reshape(-1,1)
             else:                                               #concatenate the data from the remaining sites
                 target = self.active_LFP[i]
-                target = np.reshape(target, (-1,1))
+                target = target.reshape(-1,1)
                 lfp = np.concatenate((lfp, target), axis=1)
             x = x + 1
         mean = lfp.mean(axis=0)
@@ -334,7 +341,8 @@ class Session():
         return d
         
     #a perhaps faster version to calculate CSD - uses get_shankLFP instead of
-    #explicitly getting the shank's LFP like get_CSD above
+    #explicitly getting the shank's LFP like get_CSD above.
+    #Maybe analyze the output of cProfile to see which is faster, if it matters at all
     def get_CSD2(self, shank):
         '''
         Performs CSD analysis on a given shank's lfp data.
@@ -382,7 +390,19 @@ class Session():
         
         print 'Done cleaning files'
 
-session = Session('ec013.156')
-session.load_LFPdata()
-csd = session.get_CSD(4)
+#session = Session('ec013.156')
+#session.load_LFPdata()
+##csd = session.get_CSD(4)
+#lfp = session.get_shankLFP(4)
+
+##os.chdir(cwd)
+#execfile('plot_LFP.py')
+#execfile('filter_LFP.py')
+#execfile('hilbert.py')
+#execfile('dict_to_arr.py')
+#t = session.LFP_timestamps
+#filt = filter_LFP(t, lfp, session.LFP_rate, 'theta', False)
+#phase, amp, hilbData = hilbert(filt)
+
+
 
