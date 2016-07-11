@@ -50,9 +50,9 @@ def write_nwb(sessionName):
     #### generate preliminary info/data ####
     
     #get raw position data
-    posDict = session.make_posDict()
-    #get raw LFP data
-    LFP_data_list = session.load_LFPdata()
+    posDict = session.get_posDict()
+    #load raw LFP data
+    session.load_LFPdata()
     
     #### create groups ####
     head_position = f.make_group('<module>', 'head_position')
@@ -133,7 +133,7 @@ clustering tools (eg, klustakwik) or as a result of manual sorting', 'source': '
         Clustering.set_dataset('peak_over_rms', [0.0,0.0,0.0], attrs= {'placeholder': 'temporary - fix this sometime'})
         ####
         
-        cluster_nums, times = session.get_unit_times(x)
+        cluster_nums, times = session.get_UnitTimes(x)
         Clustering.set_dataset('cluster_nums', cluster_nums)
         #UnitTimes directory in Clustering
         UnitTimes = shank.make_group('UnitTimes', attrs= {'description': 'Estimated spike times from a single unit',
@@ -158,17 +158,19 @@ clustering tools (eg, klustakwik) or as a result of manual sorting', 'source': '
 #        ######temporary, need to set this to whatever the features are per session instead of hard coding it
         
         #LFP directory
+        lfp_array = dict_to_arr(session.get_shankLFP(x,True))
         LFP = shank.make_group('LFP', attrs = {'help': 'LFP data from one or more channels. Filter properties should be noted in the ElectricalSeries',})
         LFP_timeseries = LFP.make_group('<ElectricalSeries>', 'LFP timeseries', attrs = {'help': 'Stores acquired voltage data from extracellular recordings',
                         'source': 'Data as reported in experiment files'})
-        LFP_timeseries.set_dataset('data', LFP_data_list[x], attrs = {'conversion': '1.0', 'resolution': '3.052E-7', 'units': 'Volts'})
-        LFP_timeseries.set_dataset('num_samples', len(LFP_data_list[x]))
+        LFP_timeseries.set_dataset('data', lfp_array, attrs = {'conversion': '1.0', 'resolution': '3.052E-7', 'units': 'Volts'})
+        LFP_timeseries.set_dataset('num_samples', lfp_array.shape[0])
         LFP_timeseries.set_dataset('timestamps', session.LFP_timestamps)
         LFP_timeseries.set_dataset('electrode_idx', electrode_idx)
     #custom LFP information in /general
     LFP_info = extracellular_ephys.make_custom_group('LFP_info')
     LFP_info.set_custom_dataset('nChannels', session.LFP_meta_dict['nChannels'])         #redundant but oh well
-    LFP_info.set_custom_dataset('samplingRate', session.LFP_meta_dict['samplingRate'], attrs= {'units': 'Hz'})
+    LFP_info.set_custom_dataset('spikeSamplingRate', session.LFP_meta_dict['samplingRate'], attrs = {'units': 'Hz'})
+    LFP_info.set_custom_dataset('LFPsamplingRate', session.LFP_rate, attrs = {'units': 'Hz'})
     LFP_info.set_custom_dataset('voltageRange', session.LFP_meta_dict['voltageRange'])
     LFP_info.set_custom_dataset('amplification', session.LFP_meta_dict['amplification'])
     LFP_info.set_custom_dataset('offset', session.LFP_meta_dict['offset'])
@@ -230,7 +232,7 @@ def test_stuff(sessionName):
 #test_stuff('ec013.156')
 
 #write_nwb('ec012ec.356')
-#write_nwb('ec013.156')
+write_nwb('ec013.156')
 #write_nwb('ec013.157')
 #write_nwb('ec013.756')
 #write_nwb('ec013.965')
